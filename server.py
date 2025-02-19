@@ -51,10 +51,24 @@ def get_posts():
     start = page * 10
     end = start + 10
     
+    # Get user names for all posts
+    user_names = {}
+    # Get forum titles for all posts
+    forum_titles = {}
+    for post in posts:
+        if post.author_id not in user_names:
+            user = directory.get_user_by_id(post.author_id)
+            user_names[post.author_id] = user.name if user else "Anonymous"
+        if post.forum_id not in forum_titles:
+            forum = directory.get_forum_by_id(post.forum_id)
+            forum_titles[post.forum_id] = forum.title if forum else "Unknown Forum"
+    
     return jsonify([{
         'post_id': post.post_id,
         'forum_id': post.forum_id,
+        'forum_title': forum_titles[post.forum_id],
         'author_id': post.author_id,
+        'author_name': user_names[post.author_id],
         'content': post.content,
         'created_at': post.created_at.isoformat(),
         'title': post.title,

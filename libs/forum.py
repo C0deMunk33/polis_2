@@ -585,12 +585,8 @@ class Directory:
         {
             "toolset_id": "forum_toolset",
             "name": "get_current_forums",
-            "description": "Gets the forums a user is currently active in",
-            "arguments": [{
-                "name": "user_id",
-                "type": "str",
-                "description": "The id of the user to get current forums for"
-            }]
+            "description": "Gets the forums you are currently active in",
+            "arguments": []
         }
         """
         with sqlite3.connect(self.db_path) as conn:
@@ -649,6 +645,14 @@ class Directory:
             if row is None:
                 return "User not found"
             
+            # check that forum exists
+            cursor = conn.execute(
+                "SELECT * FROM forums WHERE forum_id = ?",
+                (forum_id,)
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return "Forum not found"
             # Update the list
             current_forums = self._json_to_list(row[0])
             if forum_id not in current_forums:
@@ -1106,8 +1110,6 @@ class Directory:
         agent_user = next((user for user in self.get_users() if user.user_id == agent.id), None)
         if agent_user is None:
             agent_user = self.create_user(agent.id, agent.name, agent.persona)
-        
-        print(f"Agent {agent.name} calling tool {tool_call.name}")
 
         if tool_call.name == "get_user_by_id":
             return self.get_user_by_id(tool_call.arguments["user_id"]).model_dump_json()
@@ -1136,9 +1138,15 @@ class Directory:
         elif tool_call.name == "get_forums":
             return [forum.model_dump_json() for forum in self.get_forums(tool_call.arguments["limit"], tool_call.arguments["offset"])]
         elif tool_call.name == "get_forum_by_title":
-            return self.get_forum_by_title(tool_call.arguments["title"]).model_dump_json()
+            result = self.get_forum_by_title(tool_call.arguments["title"])
+            if result is None:
+                return "Forum not found"
+            return result.model_dump_json()
         elif tool_call.name == "get_forum_by_id":
-            return self.get_forum_by_id(tool_call.arguments["forum_id"]).model_dump_json()
+            result = self.get_forum_by_id(tool_call.arguments["forum_id"])
+            if result is None:
+                return "Forum not found"
+            return result.model_dump_json()
         elif tool_call.name == "get_random_forum":
             return self.get_random_forum().model_dump_json()
         elif tool_call.name == "create_post":
@@ -1148,19 +1156,21 @@ class Directory:
         elif tool_call.name == "get_post_by_id":
             return self.get_post_by_id(tool_call.arguments["post_id"]).model_dump_json()
         elif tool_call.name == "get_posts_by_forum":
-            return [post.model_dump_json() for post in self.get_posts_by_forum(tool_call.arguments["forum_id"], tool_call.arguments["limit"], tool_call.arguments["offset"])]
+            limit = tool_call.arguments["limit"] if "limit" in tool_call.arguments else 10
+            offset = tool_call.arguments["offset"] if "offset" in tool_call.arguments else 0
+            return [post.model_dump_json() for post in self.get_posts_by_forum(tool_call.arguments["forum_id"], limit, offset)]
         elif tool_call.name == "get_posts_by_author":
             return [post.model_dump_json() for post in self.get_posts_by_author(tool_call.arguments["author_id"], tool_call.arguments["limit"], tool_call.arguments["offset"])]
         elif tool_call.name == "get_subscribed_posts":
             return [post.model_dump_json() for post in self.get_subscribed_posts(tool_call.arguments["user_id"], tool_call.arguments["limit"], tool_call.arguments["offset"])]
         elif tool_call.name == "get_current_posts":
-            return [post.model_dump_json() for post in self.get_current_posts(tool_call.arguments["user_id"], tool_call.arguments["limit"], tool_call.arguments["offset"])]
+            return [post.model_dump_json() for post in self.get_current_posts(agent.id, tool_call.arguments["limit"], tool_call.arguments["offset"])]
         elif tool_call.name == "reply_to_post":
             return self.reply_to_post(agent.id, tool_call.arguments["post_id"], tool_call.arguments["content"]).model_dump_json()
         elif tool_call.name == "get_subscribed_forums":
             return [forum.model_dump_json() for forum in self.get_subscribed_forums(tool_call.arguments["user_id"])]
         elif tool_call.name == "get_current_forums":
-            return [forum.model_dump_json() for forum in self.get_current_forums(tool_call.arguments["user_id"])]
+            return [forum.model_dump_json() for forum in self.get_current_forums(agent.id)]
         elif tool_call.name == "subscribe_to_forum":
             return self.subscribe_to_forum(agent.id, tool_call.arguments["forum_id"])
         elif tool_call.name == "unsubscribe_from_forum":

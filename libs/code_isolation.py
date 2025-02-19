@@ -44,13 +44,18 @@ class SafeCodeExecutor:
         self.backroom_directory = os.path.join(self.allowed_directory, ".backroom")
         self.debug = debug
 
-        # return error if allowed_directory is not a directory
-        if not os.path.isdir(self.allowed_directory):
-            raise ValueError(f"Allowed directory {self.allowed_directory} is not a directory")
+        # check that allowed directory exists throw error if not
+        if not os.path.exists(self.allowed_directory):
+            raise ValueError(f"Allowed directory {self.allowed_directory} does not exist")
 
-        # make backroom directory if it doesn't exist
-        if not os.path.exists(os.path.join(self.allowed_directory, self.backroom_directory)):
-            os.makedirs(os.path.join(self.allowed_directory, self.backroom_directory), mode=0o755)        
+        # create backroom directory if it doesn't exist
+        if not os.path.exists(self.backroom_directory):
+            os.makedirs(self.backroom_directory)
+
+
+        # Add allowed directory to Python's module search path
+        if self.allowed_directory not in sys.path:
+            sys.path.insert(0, self.allowed_directory)
         
         # Default allowed modules for data analysis
         self.allowed_modules = allowed_modules or [
@@ -68,7 +73,6 @@ class SafeCodeExecutor:
         for module_name in self.allowed_modules:
             try:
                 self.imported_modules[module_name] = importlib.import_module(module_name)
-                
             except ImportError as e:
                 if self.debug:
                     print(f"Warning: Module {module_name} not available: {str(e)}")
@@ -143,13 +147,28 @@ class SafeCodeExecutor:
 
     def safe_import(self, name):
         """
-        Safely import a module if it's in the whitelist.
+        Safely import a module if it's in the whitelist or in the allowed directory.
         """
-        base_module = name.split('.')[0]
-        if base_module not in self.allowed_modules and name not in self.allowed_modules:
-            raise ImportError(f"Module '{name}' is not in the whitelist. Allowed modules: {', '.join(self.allowed_modules)}")
-        
         try:
+            # First check if it's a local file in the allowed directory
+            module_path = name.replace('.', os.path.sep)
+            possible_paths = [
+                os.path.join(self.allowed_directory, module_path + '.py'),
+                os.path.join(self.allowed_directory, module_path, '__init__.py')
+            ]
+            
+            is_local_module = any(os.path.isfile(path) for path in possible_paths)
+            
+            if is_local_module:
+                if self.debug:
+                    print(f"Importing local module: {name}")
+                return importlib.import_module(name)
+            
+            # If not local, check if it's in the whitelist
+            base_module = name.split('.')[0]
+            if base_module not in self.allowed_modules and name not in self.allowed_modules:
+                raise ImportError(f"Module '{name}' is not in the whitelist and not found in allowed directory. Allowed modules: {', '.join(self.allowed_modules)}")
+            
             if name in self.imported_modules:
                 return self.imported_modules[name]
             
@@ -163,6 +182,7 @@ class SafeCodeExecutor:
             module = importlib.import_module(name)
             self.imported_modules[name] = module
             return module
+            
         except ImportError as e:
             raise ImportError(f"Failed to import '{name}': {str(e)}")
 
@@ -174,19 +194,44 @@ class SafeCodeExecutor:
             tree = ast.parse(code_string)
             
             for node in ast.walk(tree):
-                # Check imports against whitelist
+                # Check imports
                 if isinstance(node, ast.Import):
                     for alias in node.names:
-                        if alias.name not in self.allowed_modules:
-                            if self.debug:
-                                print(f"Unauthorized import detected: {alias.name}")
+                        # Try to resolve the import to check if it's local
+                        try:
+                            module_path = alias.name.replace('.', os.path.sep)
+                            possible_paths = [
+                                os.path.join(self.allowed_directory, module_path + '.py'),
+                                os.path.join(self.allowed_directory, module_path, '__init__.py')
+                            ]
+                            
+                            is_local_module = any(os.path.isfile(path) for path in possible_paths)
+                            
+                            if not is_local_module and alias.name not in self.allowed_modules:
+                                if self.debug:
+                                    print(f"Unauthorized import detected: {alias.name}")
+                                return False
+                        except Exception:
                             return False
+                            
                 elif isinstance(node, ast.ImportFrom):
                     module_name = node.module if node.module else ''
-                    if module_name not in self.allowed_modules:
-                        if self.debug:
-                            print(f"Unauthorized from-import detected: {module_name}")
+                    # Similar check for from imports
+                    try:
+                        module_path = module_name.replace('.', os.path.sep)
+                        possible_paths = [
+                            os.path.join(self.allowed_directory, module_path + '.py'),
+                            os.path.join(self.allowed_directory, module_path, '__init__.py')
+                        ]
+                        
+                        is_local_module = any(os.path.isfile(path) for path in possible_paths)
+                        
+                        if not is_local_module and module_name not in self.allowed_modules:
+                            if self.debug:
+                                print(f"Unauthorized from-import detected: {module_name}")
                             return False
+                    except Exception:
+                        return False
                 
                 # Prevent direct attribute access
                 if isinstance(node, ast.Attribute):
@@ -202,7 +247,7 @@ class SafeCodeExecutor:
             return True
         except SyntaxError:
             return False
-
+        
     @contextmanager
     def capture_output(self):
         """Capture stdout and stderr"""
@@ -224,7 +269,7 @@ class SafeCodeExecutor:
             },{
                 "name": "code_intent",
                 "type": "string",
-                "description": "The intent of the code to execute"
+                "description": "The intent of the code to execute (required)"
             }]
         }
         """
@@ -266,6 +311,7 @@ class SafeCodeExecutor:
         except Exception as e:
             if self.debug:
                 print(f"Error: {e}")
+            print(f"Error: {e}")
             error_msg = f"{str(e)}"
 
         return CodeExecutionResult(success=False, 
@@ -302,7 +348,12 @@ class SafeCodeExecutor:
             "arguments": []
         }
         """
-        return get_directory_structure(self.allowed_directory)
+        try:
+            return get_directory_structure(self.allowed_directory)
+        except Exception as e:
+            return f"Error getting environment: {e}"
+            # print stack trace
+            print(traceback.format_exc())
 
     def pin_file(self, filename):
         """
@@ -505,6 +556,7 @@ class SafeCodeExecutor:
             return "Toolset not found"
         
         if tool_call.name == "execute":
+            print(f"Executing code: {tool_call.arguments['code']}")
             return self.execute(tool_call.arguments["code"], tool_call.arguments["code_intent"]).model_dump_json()
         
         if tool_call.name == "clear_files":

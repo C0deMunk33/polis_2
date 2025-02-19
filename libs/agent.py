@@ -21,6 +21,7 @@ class AgentOutputSchema(BaseModel):
     clear_message_buffer: bool = Field(description="Whether your message buffer should be cleared, your instructions will be passed into the next pass, and your notes will be preserved. Do this when changing topic.")
     delete_notes: List[int] = Field(description="A list of notes to delete. The notes will be deleted from the persistent notes, as seen in your system prompt.")
     clear_all_notes: bool = Field(description="Whether all notes should be deleted, your instructions will be passed into the next pass, and your message buffer will be preserved.")
+    clear_all_actions: bool = Field(description="Whether your recent action list should be cleared.")
     should_continue: bool = Field(description="Whether you should continue running, if False, you will stop running.")
 
 class Agent:
@@ -37,6 +38,7 @@ class Agent:
         self.id = hashlib.sha256(private_key.encode()).hexdigest()
 
         self.tools = []
+        self.recent_actions = []
         
     def add_message(self, message: Message):
         self.message_buffer.append(message)
@@ -62,6 +64,9 @@ You have access to the following tools:
 
 Current local time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
+Recent actions:
+{ "\n".join([f"{i}: {action}" for i, action in enumerate(self.recent_actions)]) }
+
 Please respond in the following JSON format:
 {AgentOutputSchema.model_json_schema()}
 """
@@ -77,19 +82,27 @@ Please respond in the following JSON format:
         response = call_ollama_chat(server_url, model, final_message_buffer, AgentOutputSchema.model_json_schema())
         response = AgentOutputSchema.model_validate_json(response)
 
-        print("~"*100)
-        print(response.thoughts)
+        print(f"Agent {self.name}:")
+        print(f"Thoughts: {response.thoughts}")
+        print(f"Actions taken: {response.actions_taken}")
+
+        self.recent_actions.extend(response.actions_taken)
+        # limit recent actions to 30
+        self.recent_actions = self.recent_actions[-30:]
 
         if response.clear_message_buffer:
             self.message_buffer = []
+
+        if response.clear_all_actions:
+            self.recent_actions = []
 
         if response.clear_all_notes:
             self.notes = []
         elif response.delete_notes:
             self.notes = [self.notes[i] for i in range(len(self.notes)) if i not in response.delete_notes]
-
-        if response.should_continue:
-            self.add_message(Message(role="assistant", content= "Actions taken in previous pass: " +"\n".join(response.actions_taken)))
+        self.add_message(Message(role="assistant", content= "Actions taken in previous pass: " +"\n".join(response.actions_taken)))
+        
+        if response.should_continue:    
             self.notes.extend(response.notes)
         else:
             self.running = False
@@ -100,6 +113,10 @@ Please respond in the following JSON format:
                 
                 if type(tool_results) == str:
                     self.add_message(Message(role="tool", content=tool_results))
+                elif type(tool_results) == dict:
+                    self.add_message(Message(role="tool", content=json.dumps(tool_results)))
+                elif type(tool_results) == int:
+                    self.add_message(Message(role="tool", content=str(tool_results)))
                 elif type(tool_results) == list:
                     result_string = ""
                     for result in tool_results:
@@ -111,7 +128,7 @@ Please respond in the following JSON format:
                 else:
                     print("~"*100)
                     print("~"*100)
-                    print("~"*100)
+                    print("########################UNKNOWN TOOL RESULT########################")
                     print(type(tool_results))
                     print(f"Tool results: {tool_results}")
                     print("~"*100)

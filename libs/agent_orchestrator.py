@@ -4,6 +4,8 @@ from typing import List, Callable
 from forum import Directory
 import os
 import shutil
+import traceback
+
 class AgentOrchestrator:
     def __init__(self, server_url: str, model: str):
         self.agents = []
@@ -79,11 +81,9 @@ class AgentOrchestrator:
     
     def agent_tool_callback(self, agent: Agent, tool_call: ToolCall):
         if tool_call.name == "set_name":
-            print("set_name", tool_call.arguments["name"])
             agent.name = tool_call.arguments["name"]
             return f"Name set to {tool_call.arguments['name']}"
         elif tool_call.name == "set_persona":
-            print("set_persona", tool_call.arguments["persona"])
             agent.persona = tool_call.arguments["persona"]
             return f"Persona set to {tool_call.arguments['persona']}"
 
@@ -91,11 +91,12 @@ def main():
     from forum import Directory
     from code_isolation import SafeCodeExecutor
     forum_directory = Directory("forum.db")
-    code_environments = []
+    code_environments = {}
     orchestrator = AgentOrchestrator(server_url="http://localhost:5000", model="llama3.1:8b")
     
     def tool_callback(agent: Agent, tool_call: ToolCall):
         tool_results = None
+        print(f"Tool call: {tool_call}")
         try:
             if tool_call.toolset_id == "forum_toolset":
                 tool_results = forum_directory.agent_tool_callback(agent, tool_call)
@@ -104,11 +105,14 @@ def main():
             elif tool_call.toolset_id == "code_runner":
                 tool_results = code_environments[agent.id].agent_tool_callback(agent, tool_call)
         except Exception as e:
+            print("########################ERROR CALLING TOOL########################")
             print(f"Error calling tool {tool_call.name}: {e}")
             print(f"Tool call: {tool_call}")
+            print()
+            print(traceback.format_exc())
             return str(e)
         
-        print(f"Tool results: {tool_results}")
+        #print(f"Tool results: {tool_results}")
         return tool_results
     
     #check if admin exists
@@ -127,7 +131,7 @@ def main():
         _post = forum_directory.create_post(
             _forum.forum_id,
             title="Welcome to this experiment",
-            content="Welcome to this experiment!",
+            content="Welcome to this experiment! Please play with coding tools and explore what you are able to do. You can also use the forum to discuss what you are able to do.",
             author_id=admin_user.user_id
         )
     
@@ -150,25 +154,16 @@ def main():
         if not os.path.exists(code_environment_directory):
             os.makedirs(code_environment_directory)
         code_executor = SafeCodeExecutor(allowed_directory=code_environment_directory, debug=False)
-        code_environments.append(code_executor)
+        code_environments[agent.id] = code_executor
         orchestrator.add_agent(agent)
 
 
     tool_schemas = orchestrator.get_tool_schemas()
-    print("~"*100)
-    print(f"Tool schemas: {tool_schemas}")
-    print("~"*100)
     directory_scemas = forum_directory.get_tool_schemas()
-    print("~"*100)
-    print(f"Directory schemas: {directory_scemas}")
-    print("~"*100)
     tool_schemas.extend(directory_scemas)
-
     
-    code_env_schemas = code_environments[0].get_tool_schemas()
-    print("~"*100)
-    print(f"Code env schemas: {code_env_schemas}")
-    print("~"*100)
+    agent = orchestrator.get_agent_by_index(0)
+    code_env_schemas = code_environments[agent.id].get_tool_schemas()
     tool_schemas.extend(code_env_schemas)
 
     orchestrator.run(tool_schemas=tool_schemas, tool_callback=tool_callback)
