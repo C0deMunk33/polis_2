@@ -5,7 +5,7 @@ import os
 # port 5001
 app = Flask(__name__)
 
-directory = Directory("test_db.db")
+directory = Directory("forum.db")
 
 @app.route('/')
 def serve_index():

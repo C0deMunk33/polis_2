@@ -2,6 +2,8 @@ from agent import Agent
 from common import ToolCall
 from typing import List, Callable
 from forum import Directory
+import os
+import shutil
 class AgentOrchestrator:
     def __init__(self, server_url: str, model: str):
         self.agents = []
@@ -87,7 +89,9 @@ class AgentOrchestrator:
 
 def main():
     from forum import Directory
-    forum_directory = Directory("test_db.db")
+    from code_isolation import SafeCodeExecutor
+    forum_directory = Directory("forum.db")
+    code_environments = []
     orchestrator = AgentOrchestrator(server_url="http://localhost:5000", model="llama3.1:8b")
     
     def tool_callback(agent: Agent, tool_call: ToolCall):
@@ -97,6 +101,8 @@ def main():
                 tool_results = forum_directory.agent_tool_callback(agent, tool_call)
             elif tool_call.toolset_id == "agent_tool":
                 tool_results = orchestrator.agent_tool_callback(agent, tool_call)
+            elif tool_call.toolset_id == "code_runner":
+                tool_results = code_environments[agent.id].agent_tool_callback(agent, tool_call)
         except Exception as e:
             print(f"Error calling tool {tool_call.name}: {e}")
             print(f"Tool call: {tool_call}")
@@ -104,34 +110,66 @@ def main():
         
         print(f"Tool results: {tool_results}")
         return tool_results
-
-    # create admin user
-    forum_directory.create_user("admin", "admin", "admin")
-    admin_user = forum_directory.get_user_by_id("admin")
-    # create welcome to this experiment forum
-    _forum = forum_directory.create_forum(
-        admin_user.user_id,
-        title="Welcome to this experiment",
-        description="This is a test forum for the agent orchestrator. You are free to do as you please.",
-        flags=[]
-    )
-    # create initial post in welcome to this experiment forum
-    _post = forum_directory.create_post(
-        _forum.forum_id,
-        title="Welcome to this experiment",
-        content="Welcome to this experiment!",
-        author_id=admin_user.user_id
-    )
     
-    for i in range(10): # 10 agents
-        orchestrator.add_agent(Agent(name=f"agent{i}", 
+    #check if admin exists
+    if not forum_directory.get_user_by_id("admin"):
+        # create admin user
+        forum_directory.create_user("admin", "admin", "admin")
+        admin_user = forum_directory.get_user_by_id("admin")
+        # create welcome to this experiment forum
+        _forum = forum_directory.create_forum(
+            admin_user.user_id,
+            title="Welcome to this experiment",
+            description="This whole interface is an experiment with agentic agents and agency in general. You are free to do as you please. Make it fun.",
+            flags=[]
+        )
+        # create initial post in welcome to this experiment forum
+        _post = forum_directory.create_post(
+            _forum.forum_id,
+            title="Welcome to this experiment",
+            content="Welcome to this experiment!",
+            author_id=admin_user.user_id
+        )
+    
+    # create empty code environments directory, erase if exists
+    code_environments_directory = "code_environments"
+    if os.path.exists(code_environments_directory):
+        shutil.rmtree(code_environments_directory)
+
+    os.makedirs(code_environments_directory)
+    
+    for i in range(4): 
+        
+        agent = Agent(name=f"agent{i}", 
                                  private_key=f"{i}asdasdasdasd", 
-                                 persona="You are a are free to do as you please", 
+                                 persona="Default persona (please change): You are a are free to do as you please. you can use any tools available to you.", 
                                  initial_instructions="You are a free to do as you please", 
-                                 initial_notes=[]))
+                                 initial_notes=[])
+        # create code environment directory
+        code_environment_directory = f"{code_environments_directory}/code_environment_{agent.id}"
+        if not os.path.exists(code_environment_directory):
+            os.makedirs(code_environment_directory)
+        code_executor = SafeCodeExecutor(allowed_directory=code_environment_directory, debug=False)
+        code_environments.append(code_executor)
+        orchestrator.add_agent(agent)
+
 
     tool_schemas = orchestrator.get_tool_schemas()
-    tool_schemas.extend(forum_directory.get_tool_schemas())
+    print("~"*100)
+    print(f"Tool schemas: {tool_schemas}")
+    print("~"*100)
+    directory_scemas = forum_directory.get_tool_schemas()
+    print("~"*100)
+    print(f"Directory schemas: {directory_scemas}")
+    print("~"*100)
+    tool_schemas.extend(directory_scemas)
+
+    
+    code_env_schemas = code_environments[0].get_tool_schemas()
+    print("~"*100)
+    print(f"Code env schemas: {code_env_schemas}")
+    print("~"*100)
+    tool_schemas.extend(code_env_schemas)
 
     orchestrator.run(tool_schemas=tool_schemas, tool_callback=tool_callback)
 

@@ -13,7 +13,7 @@ def check_module_importable(module_name):
     except ImportError as e:
         return str(e)
 
-def should_skip_directory(dirname):
+def should_skip_directory(dirname, show_hidden=False):
     skip_dirs = {
         '__pycache__',
         '.git',
@@ -25,14 +25,16 @@ def should_skip_directory(dirname):
         '.vscode',
         '.idea'
     }
-    return dirname in skip_dirs or dirname.startswith('.')
+    # Always skip special directories, but only skip hidden directories if show_hidden is False
+    return dirname in skip_dirs or (not show_hidden and dirname.startswith('.'))
 
-def get_directory_structure(directory_path='.'):
+def get_directory_structure(directory_path='.', show_hidden=False):
     """
     Returns a formatted string representing the directory structure.
     
     Args:
         directory_path (str): Path to the directory to scan. Defaults to current directory.
+        show_hidden (bool): Whether to show hidden files and directories. Defaults to False.
     
     Returns:
         str: Formatted string showing the directory structure
@@ -41,7 +43,7 @@ def get_directory_structure(directory_path='.'):
     
     for root, dirs, files in os.walk(directory_path):
         # Remove directories we want to skip
-        dirs[:] = [d for d in dirs if not should_skip_directory(d)]
+        dirs[:] = [d for d in dirs if not should_skip_directory(d, show_hidden)]
         
         level = root.replace(directory_path, '').count(os.sep)
         indent = ' ' * 4 * level
@@ -52,7 +54,8 @@ def get_directory_structure(directory_path='.'):
         
         subindent = ' ' * 4 * (level + 1)
         for f in sorted(files):
-            if not f.startswith('.') and not f.endswith('.pyc'):
+            # Only skip hidden files if show_hidden is False
+            if show_hidden or (not f.startswith('.') and not f.endswith('.pyc')):
                 output.append(f"{subindent}{f}")
     if len(output) == 0:
         return "No files found"

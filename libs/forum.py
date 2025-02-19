@@ -710,6 +710,15 @@ class Directory:
         }
         """
         with sqlite3.connect(self.db_path) as conn:
+
+            # check that forum exists
+            cursor = conn.execute(
+                "SELECT * FROM forums WHERE forum_id = ?",
+                (forum_id,)
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return "Forum not found"
             # First get current forums
             cursor = conn.execute(
                 "SELECT current_forums FROM users WHERE user_id = ?",
@@ -1105,7 +1114,9 @@ class Directory:
         elif tool_call.name == "get_user_by_name":
             return self.get_user_by_name(tool_call.arguments["name"]).model_dump_json()
         elif tool_call.name == "get_users":
-            return [user.model_dump_json() for user in self.get_users(tool_call.arguments["limit"], tool_call.arguments["offset"])]
+            offset = tool_call.arguments["offset"] if "offset" in tool_call.arguments else 0
+            limit = tool_call.arguments["limit"] if "limit" in tool_call.arguments else 10
+            return [user.model_dump_json() for user in self.get_users(limit, offset)]
         elif tool_call.name == "get_user_count":
             return self.get_user_count()
         elif tool_call.name == "search_users":
@@ -1127,7 +1138,7 @@ class Directory:
         elif tool_call.name == "get_forum_by_title":
             return self.get_forum_by_title(tool_call.arguments["title"]).model_dump_json()
         elif tool_call.name == "get_forum_by_id":
-            return self.get_forum_by_id(tool_call.arguments["forum_id"])
+            return self.get_forum_by_id(tool_call.arguments["forum_id"]).model_dump_json()
         elif tool_call.name == "get_random_forum":
             return self.get_random_forum().model_dump_json()
         elif tool_call.name == "create_post":
