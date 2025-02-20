@@ -20,7 +20,7 @@ def get_forums():
     if search:
         forums = directory.search_forums(search)
     else:
-        forums = directory.get_forums(limit=10, offset=page * 10)
+        forums = directory.get_forum_objects(limit=10, offset=page * 10)
     
     return jsonify([{
         'forum_id': forum.forum_id,
@@ -38,7 +38,7 @@ def get_posts():
     # For simplicity, we'll just get posts from all forums
     # You might want to add more sophisticated search/filter logic
     posts = []
-    forums = directory.get_forums()
+    forums = directory.get_forum_objects()
     
     for forum in forums:
         forum_posts = directory.get_posts_by_forum(forum.forum_id, limit=10, offset=page * 10)

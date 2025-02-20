@@ -59,7 +59,7 @@ class QuestManager:
         self.quests = {}
         self.current_quest_name = None
         self.quest_files = {}
-
+        self.quest_submissions = []
         names_of_tools_to_expose = [
             "get_quest_list",
             "create_quest",
@@ -182,7 +182,7 @@ Please respond with JSON in the following format:
         self.quests[quest.title] = quest
         return quest
     
-    def create_quest_file(self, llm_url: str, quest_title: str, file_name: str, file_content: str, file_description: str, file_notes: List[str]):
+    def create_quest_file(self, llm_url: str, quest_title: str, file_name: str, file_content: str, file_description: str):
         """
         {
             "toolset_id": "quest_manager",
@@ -205,11 +205,6 @@ Please respond with JSON in the following format:
                     "description": "A description of the file."
                 },
                 {
-                    "name": "file_notes",
-                    "type": "List[str]",
-                    "description": "A list of notes about the file."
-                },
-                {
                     "name": "file_content",
                     "type": "str",
                     "description": "The content of the file. must be a string of text."
@@ -220,7 +215,7 @@ Please respond with JSON in the following format:
         quest = self.get_quest_by_title(quest_title)
         if quest is None:
             raise ValueError(f"Quest with name {quest_title} not found")
-        quest.files.append(QuestFile(file_name=file_name, file_content=file_content, file_description=file_description, notes=file_notes))
+        quest.files.append(QuestFile(file_name=file_name, file_content=file_content, file_description=file_description, notes=[]))
         return quest
 
     def get_quest_file_details(self, quest_title: str, file_name: str):
@@ -314,6 +309,8 @@ Please respond with JSON in the following format:
         quest = self.get_quest_by_title(quest_title)
         if quest is None:
             return None
+        if file_name not in quest.files:
+            return f"Quest {quest_title} does not have a file named {file_name}"
         quest.files[file_name].notes.append(note)
         return f"Note added to file {file_name}: {note}"
     
@@ -542,6 +539,8 @@ Please respond with JSON in the following format:
         quest = self.quests[quest_title]
         if quest is None:
             raise ValueError(f"Quest with name {quest_title} not found")
+        if step_title not in quest.steps:
+            return f"Quest {quest_title} does not have a step named {step_title}"
         quest.steps[step_title].notes.append(note)
         return quest
     
@@ -755,7 +754,13 @@ Please respond with JSON in the following format:
         if quest is None:
             return "Quest not found"
         quest.status = "submitted for review"
-        quest.submission_notes = submission_notes
+        
+        quest_submission = QuestSubmission(
+            quest_title=quest_title,
+            submission_notes=submission_notes
+        )
+        self.quest_submissions.append(quest_submission)
+
         return f"Quest {quest_title} submitted for review"
 
     def abandon_quest(self, quest_title: str, abandonment_notes: str):

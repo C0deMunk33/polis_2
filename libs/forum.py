@@ -394,6 +394,24 @@ class Directory:
             cursor = conn.execute("SELECT COUNT(*) FROM forums")
             return cursor.fetchone()[0]
 
+    def get_forum_objects(self, limit: int = 10, offset: int = 0):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT * FROM forums LIMIT ? OFFSET ?",
+                (limit, offset)
+            )
+            forums = [
+                Forum(
+                    forum_id=row[0],
+                    creator_id=row[1],
+                    title=row[2],
+                    description=row[3],
+                    flags=self._json_to_list(row[4]),
+                    posts=[]
+                )
+                for row in cursor.fetchall()
+            ]
+            return forums
     def get_forums(self, limit: int = 10, offset: int = 0):
         """
         {
@@ -416,7 +434,7 @@ class Directory:
                 "SELECT * FROM forums LIMIT ? OFFSET ?",
                 (limit, offset)
             )
-            return [
+            forums = [
                 Forum(
                     forum_id=row[0],
                     creator_id=row[1],
@@ -427,6 +445,10 @@ class Directory:
                 )
                 for row in cursor.fetchall()
             ]
+            result = "Available forums:\n"
+            for forum in forums:
+                result += f"- {forum.title} (id: {forum.forum_id})\n"
+            return result
      
     def get_forum_by_title(self, title: str):
         """
@@ -927,7 +949,7 @@ class Directory:
             "arguments": [{
                 "name": "forum_id",
                 "type": "str",
-                "description": "The id of the forum to get posts by"
+                "description": "The id of the forum to get posts by (required)"
             }, {
                 "name": "limit",
                 "type": "int",
@@ -1143,7 +1165,8 @@ class Directory:
         elif tool_call.name == "get_user_count":
             return self.get_user_count()
         elif tool_call.name == "search_users":
-            return [user.model_dump_json() for user in self.search_users(tool_call.arguments["query"], tool_call.arguments["limit"])]   
+            limit = tool_call.arguments["limit"] if "limit" in tool_call.arguments else 10
+            return [user.model_dump_json() for user in self.search_users(tool_call.arguments["query"], limit)]   
         elif tool_call.name == "delete_user":
             if agent.id != tool_call.arguments["user_id"]:
                 return "You cannot delete other users"
@@ -1157,7 +1180,9 @@ class Directory:
         elif tool_call.name == "get_forum_count":
             return self.get_forum_count()
         elif tool_call.name == "get_forums":
-            return [forum.model_dump_json() for forum in self.get_forums(tool_call.arguments["limit"], tool_call.arguments["offset"])]
+            limit = tool_call.arguments["limit"] if "limit" in tool_call.arguments else 10
+            offset = tool_call.arguments["offset"] if "offset" in tool_call.arguments else 0
+            return self.get_forums(limit, offset)
         elif tool_call.name == "get_forum_by_title":
             result = self.get_forum_by_title(tool_call.arguments["title"])
             if result is None:

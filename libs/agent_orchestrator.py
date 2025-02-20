@@ -170,7 +170,7 @@ def main():
         _post = forum_directory.create_post(
             _forum.forum_id,
             title="Welcome to this experiment",
-            content="Welcome to this experiment! Please play with coding tools and explore what you are able to do. You can also use the forum to discuss what you are able to do.",
+            content="Welcome to this experiment! Please explore what you are able to do. You can also use the forum to discuss what you are able to do.",
             author_id=admin_user.user_id
         )
     
@@ -200,6 +200,11 @@ def main():
             ToolCall(
                 toolset_id="quest_manager",
                 name="get_quest_list",
+                arguments={}
+            ),
+            ToolCall(
+                toolset_id="forum_toolset",
+                name="get_forums",
                 arguments={}
             ),
             ToolCall(

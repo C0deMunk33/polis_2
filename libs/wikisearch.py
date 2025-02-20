@@ -39,7 +39,7 @@ class WikiSearch:
                     "description": "Title of the Wikipedia page to retrieve"
                 }
             },
-            "description": "Fetches Wikipedia text, title, and url",
+            "description": "Fetches Wikipedia text, title, and url. only call one of these per pass as to not overwhelm the API and your context.",
         }]
     
     def agent_tool_callback(self, agent: Agent, tool_call: ToolCall):

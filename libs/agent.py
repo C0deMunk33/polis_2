@@ -7,7 +7,7 @@ from typing import List, Optional, Callable
 from pydantic import BaseModel, Field
 import hashlib
 import json
-
+import traceback
 import warnings
 warnings.filterwarnings(action="ignore", message="unclosed", category=ResourceWarning)
 
@@ -131,9 +131,14 @@ Please respond in the following JSON format:
         final_message_buffer = [Message(role="system", content=system_prompt)] + self.message_buffer
 
         response = call_ollama_chat(server_url, model, final_message_buffer, AgentOutputSchema.model_json_schema())
-        response = AgentOutputSchema.model_validate_json(response)
+        try:
+            response = AgentOutputSchema.model_validate_json(response)
+        except Exception as e:
+            print(f"Error validating response: {e}")
+            print(f"Response: {response}")
+            print(f"Stack trace: {traceback.format_exc()}")
+            raise e
         print()
-        print(f"{self.name}:")
         print(f"Thoughts:")
         for thought in response.thoughts:
             print(f"  - {thought}")
