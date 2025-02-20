@@ -25,7 +25,8 @@ class AgentOutputSchema(BaseModel):
     should_continue: bool = Field(description="Whether you should continue running, if False, you will stop running.")
 
 class Agent:
-    def __init__(self, name: str, private_key: str, persona: str, initial_instructions: str, initial_notes: List[str], buffer_size: int = 20, running: bool = True):
+    def __init__(self, default_llm_url: str, name: str, private_key: str, persona: str, initial_instructions: str, initial_notes: List[str], buffer_size: int = 20, running: bool = True, standing_tool_calls: List[ToolCall] = []):
+        self.default_llm_url = default_llm_url
         self.name = name
         self.private_key = private_key
         self.persona = persona
@@ -33,6 +34,7 @@ class Agent:
         self.running = running
         self.buffer_size = buffer_size
         self.message_buffer = []
+        self.standing_tool_calls = standing_tool_calls
         self.message_buffer.append(Message(role="user", content=initial_instructions))
         # agent id is deterministic hash of private key
         self.id = hashlib.sha256(private_key.encode()).hexdigest()
@@ -44,7 +46,7 @@ class Agent:
         self.message_buffer.append(message)
         self.message_buffer = self.message_buffer[-self.buffer_size:]
         
-    def get_system_prompt(self, tool_schemas: List[dict]):
+    def get_system_prompt(self, tool_schemas: List[dict], standing_tool_results: str):
         # TODO add goals and requirements
         note_string = ""
 
@@ -62,6 +64,9 @@ Persona: {self.persona}.
 You have access to the following tools:
 {tool_schemas_json}
 
+Current context:
+{standing_tool_results}
+
 Current local time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 Recent actions:
@@ -71,43 +76,8 @@ Please respond in the following JSON format:
 {AgentOutputSchema.model_json_schema()}
 """
 
-    def run(self, server_url: str, model: str, tool_schemas: List[dict], tool_callback: Callable):
-        if not self.running:
-            return
-
-        system_prompt = self.get_system_prompt(tool_schemas)
-
-        final_message_buffer = [Message(role="system", content=system_prompt)] + self.message_buffer
-
-        response = call_ollama_chat(server_url, model, final_message_buffer, AgentOutputSchema.model_json_schema())
-        response = AgentOutputSchema.model_validate_json(response)
-
-        print(f"Agent {self.name}:")
-        print(f"Thoughts: {response.thoughts}")
-        print(f"Actions taken: {response.actions_taken}")
-
-        self.recent_actions.extend(response.actions_taken)
-        # limit recent actions to 30
-        self.recent_actions = self.recent_actions[-30:]
-
-        if response.clear_message_buffer:
-            self.message_buffer = []
-
-        if response.clear_all_actions:
-            self.recent_actions = []
-
-        if response.clear_all_notes:
-            self.notes = []
-        elif response.delete_notes:
-            self.notes = [self.notes[i] for i in range(len(self.notes)) if i not in response.delete_notes]
-        self.add_message(Message(role="assistant", content= "Actions taken in previous pass: " +"\n".join(response.actions_taken)))
-        
-        if response.should_continue:    
-            self.notes.extend(response.notes)
-        else:
-            self.running = False
-
-        for tool_call in response.tool_calls:
+    def call_tools(self, tool_calls: List[ToolCall], tool_callback: Callable):
+        for tool_call in tool_calls:
             tool_results = tool_callback(self, tool_call)
             if tool_results is not None:
                 
@@ -130,8 +100,69 @@ Please respond in the following JSON format:
                     print("~"*100)
                     print("########################UNKNOWN TOOL RESULT########################")
                     print(type(tool_results))
+                    print("Tool call:")
+                    print(f"Tool call: {tool_call}")
+                    print("~"*100)
                     print(f"Tool results: {tool_results}")
                     print("~"*100)
                     print("~"*100)
                     print("~"*100)
+
+    def call_standing_tool_calls(self, tool_callback: Callable):
+        # calls standing tools and concatenates results as a single string
+        result = ""
+        print("Standing tool calls:")
+        for tool_call in self.standing_tool_calls:
+            tool_result = tool_callback(self, tool_call)            
+            if tool_result is not None:
+                result += tool_result
+        return result
+
+    def run(self, server_url: str, model: str, tool_schemas: List[dict], tool_callback: Callable):
+        if not self.running:
+            print(f"Agent {self.name} is not running")
+            return
+        
+        # perform standing tool calls
+        standing_tool_results = self.call_standing_tool_calls(tool_callback)
+
+        system_prompt = self.get_system_prompt(tool_schemas, standing_tool_results)
+
+        final_message_buffer = [Message(role="system", content=system_prompt)] + self.message_buffer
+
+        response = call_ollama_chat(server_url, model, final_message_buffer, AgentOutputSchema.model_json_schema())
+        response = AgentOutputSchema.model_validate_json(response)
+        print()
+        print(f"{self.name}:")
+        print(f"Thoughts:")
+        for thought in response.thoughts:
+            print(f"  - {thought}")
+        print(f"Actions taken:")
+        for action in response.actions_taken:
+            print(f"  - {action}")
+        print(f"Calling tools:")
+
+        self.recent_actions.extend(response.actions_taken)
+        # limit recent actions to 30
+        self.recent_actions = self.recent_actions[-30:]
+
+        if response.clear_message_buffer:
+            self.message_buffer = []
+
+        if response.clear_all_actions:
+            self.recent_actions = []
+
+        if response.clear_all_notes:
+            self.notes = []
+        elif response.delete_notes:
+            self.notes = [self.notes[i] for i in range(len(self.notes)) if i not in response.delete_notes]
+        self.add_message(Message(role="assistant", content= "Actions taken in previous pass: " +"\n".join(response.actions_taken)))
+        
+        if response.should_continue:    
+            self.notes.extend(response.notes)
+        else:
+            self.running = False
+
+        self.call_tools(response.tool_calls, tool_callback)
+        
         self.add_message(Message(role="user", content= "Instructions from you on your last pass: " + response.instructions_for_next_pass))

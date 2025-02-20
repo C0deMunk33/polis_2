@@ -1,4 +1,3 @@
-
 try:
     from .common import ToolCall, ToolSchema
     from .agent import Agent
@@ -560,7 +559,7 @@ class Directory:
             # Get the list of forum IDs
             forum_ids = self._json_to_list(row[0])
             if not forum_ids:
-                return []
+                return "Subscribed forums:\n- No subscribed forums"
             
             # Now get the forums
             placeholders = ','.join('?' * len(forum_ids))
@@ -568,7 +567,7 @@ class Directory:
                 f"SELECT * FROM forums WHERE forum_id IN ({placeholders})",
                 forum_ids
             )
-            return [
+            forum_list = [
                 Forum(
                     forum_id=row[0],
                     creator_id=row[1],
@@ -579,6 +578,13 @@ class Directory:
                 )
                 for row in cursor.fetchall()
             ]
+            result = "Subscribed forums:\n"
+            if len(forum_list) == 0:
+                result += "- No subscribed forums"
+            else:
+                for forum in forum_list:
+                    result += f"- {forum.title} (id: {forum.forum_id})\n"
+            return result
     
     def get_current_forums(self, user_id: str):
         """
@@ -602,7 +608,7 @@ class Directory:
             # Get the list of forum IDs
             forum_ids = self._json_to_list(row[0])
             if not forum_ids:
-                return []
+                return "Current forums:\n- No current forums"
             
             # Now get the forums
             placeholders = ','.join('?' * len(forum_ids))
@@ -610,7 +616,7 @@ class Directory:
                 f"SELECT * FROM forums WHERE forum_id IN ({placeholders})",
                 forum_ids
             )
-            return [
+            forum_list = [
                 Forum(
                     forum_id=row[0],
                     creator_id=row[1],
@@ -621,6 +627,13 @@ class Directory:
                 )
                 for row in cursor.fetchall()
             ]
+            result = "Current forums:\n"
+            if len(forum_list) == 0:
+                result += "- No current forums"
+            else:
+                for forum in forum_list:
+                    result += f"- {forum.title} (id: {forum.forum_id})\n"
+            return result
     
     def subscribe_to_forum(self, user_id: str, forum_id: str):
         """
@@ -1008,8 +1021,16 @@ class Directory:
         """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
-                "SELECT * FROM posts WHERE forum_id IN (SELECT forum_id FROM users WHERE user_id = ? AND ? IN (SELECT * FROM json_each(current_forums))) ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                (user_id, user_id, limit, offset)
+                """
+                SELECT * FROM posts 
+                WHERE forum_id IN (
+                    SELECT json_each.value 
+                    FROM users, json_each(users.current_forums) 
+                    WHERE users.user_id = ?
+                )
+                ORDER BY created_at DESC LIMIT ? OFFSET ?
+                """,
+                (user_id, limit, offset)
             )
             rows = cursor.fetchall()
             if rows is None:
@@ -1168,9 +1189,9 @@ class Directory:
         elif tool_call.name == "reply_to_post":
             return self.reply_to_post(agent.id, tool_call.arguments["post_id"], tool_call.arguments["content"]).model_dump_json()
         elif tool_call.name == "get_subscribed_forums":
-            return [forum.model_dump_json() for forum in self.get_subscribed_forums(tool_call.arguments["user_id"])]
+            return self.get_subscribed_forums(agent.id)
         elif tool_call.name == "get_current_forums":
-            return [forum.model_dump_json() for forum in self.get_current_forums(agent.id)]
+            return self.get_current_forums(agent.id)
         elif tool_call.name == "subscribe_to_forum":
             return self.subscribe_to_forum(agent.id, tool_call.arguments["forum_id"])
         elif tool_call.name == "unsubscribe_from_forum":

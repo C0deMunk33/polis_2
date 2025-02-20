@@ -18,7 +18,8 @@ dependencies = [
     "seaborn (>=0.13.2,<0.14.0)",
     "scipy (>=1.15.2,<2.0.0)",
     "scikit-learn (>=1.6.1,<2.0.0)",
-    "statsmodels (>=0.14.4,<0.15.0)"
+    "statsmodels (>=0.14.4,<0.15.0)",
+    "wikipedia (>=1.4.0,<2.0.0)",
 ]
 
 

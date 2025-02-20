@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from markitdown import MarkItDown
 import semchunk
 from typing import List
-
+import difflib
 def call_ollama_chat(server_url, model, messages, json_schema=None, temperature=None, tools=None):
     try:
         client = Client(
@@ -55,6 +55,9 @@ def chunk_text(text, chunk_size, overlap=0):
     res = chunker(text, overlap)
     return res
 
+def apply_unified_diff(file_content, diff):
+    return difflib.unified_diff(file_content.splitlines(), diff.splitlines())
+
 class ToolCall(BaseModel):
     toolset_id: str
     name: str
@@ -75,3 +78,22 @@ class Message(BaseModel):
             "role": self.role,
             "content": self.content
         }
+    
+class MultiWriter:
+    def __init__(self, *files):
+        self.files = files
+
+    def write(self, text):
+        for file in self.files:
+            file.write(text)
+            file.flush()  # Ensure writing happens immediately
+
+    def flush(self):
+        for file in self.files:
+            file.flush()
+
+
+
+
+
+

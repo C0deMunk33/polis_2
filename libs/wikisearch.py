@@ -1,6 +1,14 @@
 import json
 import wikipedia
 import bs4
+import traceback
+
+try:
+    from .common import ToolCall
+    from .agent import Agent
+except ImportError:
+    from common import ToolCall
+    from agent import Agent
 
 ########################
 # Monkey patch section #
@@ -21,11 +29,9 @@ bs4.BeautifulSoup.__init__ = _monkey_patched_init
 
 
 class WikiSearch:
-    def get_function_schemas(self):
-        """
-        returns list of function schemas
-        """
+    def get_tool_schemas(self):
         return [{
+            "toolset_id": "wiki_toolset",
             "name": "get_wikipedia_text",
             "arguments": {
                 "title": {
@@ -35,6 +41,24 @@ class WikiSearch:
             },
             "description": "Fetches Wikipedia text, title, and url",
         }]
+    
+    def agent_tool_callback(self, agent: Agent, tool_call: ToolCall):
+        tool_results = None
+        try:
+            if tool_call.toolset_id != "wiki_toolset":
+                return f"Error: Toolset ID {tool_call.toolset_id} not found"
+            
+            if tool_call.name == "get_wikipedia_text":
+                tool_results = self.get_wikipedia_text(tool_call.arguments["title"])
+            else:
+                return f"Error: Tool {tool_call.name} not found"
+        except Exception as e:
+            print(f"Error: {e}")
+            print(f"Tool call: {tool_call}")
+            print()
+            print(traceback.format_exc())
+            return str(e)
+        return tool_results
 
     def get_wikipedia_text(self, title):
         # Set user agent and language (optional but recommended)

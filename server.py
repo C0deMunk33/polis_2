@@ -173,5 +173,72 @@ def get_post_details(post_id):
         } for reply in replies]
     })
 
+@app.route('/api/forum/<forum_id>/post', methods=['POST'])
+def create_post():
+    data = request.json
+    forum_id = data.get('forum_id')
+    content = data.get('content')
+    title = data.get('title', '')
+    parent_id = data.get('parent_id', None)
+    
+    if not content:
+        return jsonify({"error": "Content is required"}), 400
+        
+    # Create post as ADMIN
+    post = directory.create_post(
+        forum_id=forum_id,
+        author_id="ADMIN",
+        content=content,
+        title=title,
+        parent_id=parent_id
+    )
+    
+    return jsonify({
+        'post_id': post.post_id,
+        'forum_id': post.forum_id,
+        'author_id': post.author_id,
+        'content': post.content,
+        'created_at': post.created_at.isoformat(),
+        'title': post.title,
+        'parent_id': post.parent_id,
+        'files': post.files,
+        'flags': post.flags
+    })
+
+@app.route('/api/post/<post_id>/reply', methods=['POST'])
+def create_reply(post_id):
+    data = request.json
+    content = data.get('content')
+    title = data.get('title', '')
+    
+    if not content:
+        return jsonify({"error": "Content is required"}), 400
+        
+    # Get original post to get forum_id
+    original_post = directory.get_post_by_id(post_id)
+    if not original_post:
+        return jsonify({"error": "Original post not found"}), 404
+        
+    # Create reply as ADMIN
+    reply = directory.create_post(
+        forum_id=original_post.forum_id,
+        author_id="ADMIN",
+        content=content,
+        title=title,
+        parent_id=post_id
+    )
+    
+    return jsonify({
+        'post_id': reply.post_id,
+        'forum_id': reply.forum_id,
+        'author_id': reply.author_id,
+        'content': reply.content,
+        'created_at': reply.created_at.isoformat(),
+        'title': reply.title,
+        'parent_id': reply.parent_id,
+        'files': reply.files,
+        'flags': reply.flags
+    })
+
 if __name__ == '__main__':
     app.run(debug=True, port=5001)

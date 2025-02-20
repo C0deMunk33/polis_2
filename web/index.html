@@ -225,6 +225,44 @@
         .post-forum-title a:hover {
             text-decoration: underline;
         }
+
+        .post-form {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .post-form textarea {
+            width: 100%;
+            min-height: 100px;
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            border: 1px solid var(--border);
+            border-radius: 0.375rem;
+        }
+
+        .post-form input[type="text"] {
+            width: 100%;
+            padding: 0.5rem;
+            margin-bottom: 0.5rem;
+            border: 1px solid var(--border);
+            border-radius: 0.375rem;
+        }
+
+        .post-form button {
+            padding: 0.5rem 1rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 0.375rem;
+            cursor: pointer;
+        }
+
+        .post-form button:hover {
+            background: var(--primary-dark);
+        }
     </style>
 </head>
 <body>
@@ -234,9 +272,9 @@
                 <div>
                     <h1>Forum Database Viewer</h1>
                     <nav class="nav">
-                        <a href="#" class="nav-item active" data-view="forums">Forums</a>
-                        <a href="#" class="nav-item" data-view="posts">All Posts</a>
-                        <a href="#" class="nav-item" data-view="users">Users</a>
+                        <a href="#forums" class="nav-item active" data-view="forums">Forums</a>
+                        <a href="#posts" class="nav-item" data-view="posts">All Posts</a>
+                        <a href="#users" class="nav-item" data-view="users">Users</a>
                     </nav>
                 </div>
                 <button class="refresh-btn" onclick="updateContent()">Refresh</button>
@@ -258,6 +296,8 @@
         let currentView = 'forums';
         let currentPage = 0;
         let currentSearch = '';
+        let currentForumId = null;
+        let currentPostId = null;
 
         // Simulated API endpoints (replace with actual endpoints)
         const API = {
@@ -283,9 +323,6 @@
             }
         };
 
-        let currentForumId = null;
-        let currentPostId = null;
-
         function renderForum(forum) {
             return `
                 <div class="card">
@@ -304,6 +341,7 @@
             return `
                 <a href="#" class="back-link" onclick="showForums(); return false;">← Back to Forums</a>
                 <div class="forum-title">${forum.title}</div>
+                ${renderPostForm(forum.forum_id)}
                 ${forum.posts.map(post => renderPost(post, true)).join('')}
             `;
         }
@@ -327,6 +365,7 @@
                         ${date} ${postLink}
                     </div>
                     <div class="post-content">${post.content}</div>
+                    ${inForum ? renderPostForm(post.forum_id, post.post_id) : ''}
                     ${post.replies ? renderReplies(post.replies) : ''}
                 </div>
             `;
@@ -354,9 +393,125 @@
             `;
         }
 
+        function renderPostForm(forumId, parentId = null) {
+            return `
+                <div class="post-form">
+                    <input type="text" id="post-title" placeholder="Title (optional)">
+                    <textarea id="post-content" placeholder="Write your post..."></textarea>
+                    <button onclick="submitPost('${forumId}', ${parentId ? `'${parentId}'` : 'null'})">
+                        ${parentId ? 'Submit Reply' : 'Create Post'}
+                    </button>
+                </div>
+            `;
+        }
+
+        async function submitPost(forumId, parentId = null) {
+            const title = document.getElementById('post-title').value;
+            const content = document.getElementById('post-content').value;
+
+            if (!content) {
+                alert('Content is required');
+                return;
+            }
+
+            try {
+                const endpoint = parentId ? 
+                    `/api/post/${parentId}/reply` :
+                    `/api/forum/${forumId}/post`;
+
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        forum_id: forumId,
+                        content,
+                        title,
+                        parent_id: parentId
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to create post');
+                }
+
+                // Clear form
+                document.getElementById('post-title').value = '';
+                document.getElementById('post-content').value = '';
+
+                // Refresh content
+                updateContent();
+            } catch (error) {
+                alert('Error creating post: ' + error.message);
+            }
+        }
+
+        // Add new routing functions
+        function updateURL() {
+            let hash = `#${currentView}`;
+            if (currentPage > 0) hash += `/page/${currentPage}`;
+            if (currentSearch) hash += `/search/${encodeURIComponent(currentSearch)}`;
+            if (currentForumId) hash += `/forum/${currentForumId}`;
+            if (currentPostId) hash += `/post/${currentPostId}`;
+            window.location.hash = hash;
+        }
+
+        function parseURL() {
+            const hash = window.location.hash.slice(1) || 'forums';
+            const parts = hash.split('/');
+            
+            // Reset all current states
+            currentView = 'forums';
+            currentPage = 0;
+            currentSearch = '';
+            currentForumId = null;
+            currentPostId = null;
+            
+            // Parse URL parts
+            for (let i = 0; i < parts.length; i++) {
+                switch (parts[i]) {
+                    case 'forums':
+                    case 'posts':
+                    case 'users':
+                        currentView = parts[i];
+                        break;
+                    case 'page':
+                        currentPage = parseInt(parts[i + 1]) || 0;
+                        i++;
+                        break;
+                    case 'search':
+                        currentSearch = decodeURIComponent(parts[i + 1]) || '';
+                        i++;
+                        break;
+                    case 'forum':
+                        currentForumId = parts[i + 1];
+                        currentView = 'forum-details';
+                        i++;
+                        break;
+                    case 'post':
+                        currentPostId = parts[i + 1];
+                        currentView = 'post-details';
+                        i++;
+                        break;
+                }
+            }
+
+            // Update nav items active state
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.toggle('active', item.dataset.view === currentView);
+            });
+
+            // Update search input
+            document.querySelector('.search').value = currentSearch;
+        }
+
+        // Modify existing functions to use URL updates
         async function showForumDetails(forumId) {
             currentForumId = forumId;
             currentView = 'forum-details';
+            currentPostId = null;
+            updateURL();
             const contentDiv = document.getElementById('content');
             contentDiv.innerHTML = '<div class="loading">Loading...</div>';
             
@@ -371,6 +526,7 @@
         async function showPostDetails(postId) {
             currentPostId = postId;
             currentView = 'post-details';
+            updateURL();
             const contentDiv = document.getElementById('content');
             contentDiv.innerHTML = '<div class="loading">Loading...</div>';
             
@@ -392,6 +548,7 @@
             currentPostId = null;
             currentView = 'forums';
             currentPage = 0;
+            updateURL();
             updateContent();
         }
 
@@ -432,13 +589,17 @@
             }
         }
 
-        // Event Listeners
+        // Modify event listeners
         document.querySelector('.nav').addEventListener('click', (e) => {
             if (e.target.classList.contains('nav-item')) {
+                e.preventDefault();
                 document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
                 e.target.classList.add('active');
                 currentView = e.target.dataset.view;
                 currentPage = 0;
+                currentForumId = null;
+                currentPostId = null;
+                updateURL();
                 updateContent();
             }
         });
@@ -446,22 +607,32 @@
         document.querySelector('.search').addEventListener('input', (e) => {
             currentSearch = e.target.value;
             currentPage = 0;
+            updateURL();
             updateContent();
         });
 
         document.getElementById('prev').addEventListener('click', () => {
             if (currentPage > 0) {
                 currentPage--;
+                updateURL();
                 updateContent();
             }
         });
 
         document.getElementById('next').addEventListener('click', () => {
             currentPage++;
+            updateURL();
+            updateContent();
+        });
+
+        // Add URL hash change listener
+        window.addEventListener('hashchange', () => {
+            parseURL();
             updateContent();
         });
 
         // Initial load
+        parseURL();
         updateContent();
 
         function addStyles() {
