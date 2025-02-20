@@ -1,6 +1,8 @@
 # local DBs
 *.db
 code_environments/
+std_out.txt
+std_err.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
