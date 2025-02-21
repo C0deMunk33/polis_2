@@ -4,7 +4,7 @@ import sys
 import chromadb
 from chromadb.config import Settings
 
-from common import convert_file, chunk_text, embed_with_ollama
+from libs.common import convert_file, chunk_text, embed_with_ollama
 
 import warnings
 warnings.filterwarnings(action="ignore", message="unclosed", category=ResourceWarning)

@@ -1,9 +1,7 @@
-try:
-    from .common import ToolCall, ToolSchema
-    from .agent import Agent
-except ImportError:
-    from common import ToolCall, ToolSchema
-    from agent import Agent
+
+from libs.common import ToolCall, ToolSchema, ToolsetDetails
+from libs.agent import Agent
+
 from pydantic import BaseModel
 from datetime import datetime
 from typing import List, Optional
@@ -1142,6 +1140,13 @@ class Directory:
             return f"Persona set to {persona}"
 
     ############### Agent Interface ###############
+    def get_toolset_details(self):
+        return ToolsetDetails(
+            toolset_id="forum_toolset",
+            name="Forum",
+            description="A forum for users to interact with each other"
+        )
+
     def get_tool_schemas(self):
         return [tool_schema.model_dump_json() for tool_schema in self.tool_schemas]
     
@@ -1202,6 +1207,8 @@ class Directory:
         elif tool_call.name == "get_post_by_id":
             return self.get_post_by_id(tool_call.arguments["post_id"]).model_dump_json()
         elif tool_call.name == "get_posts_by_forum":
+            if "forum_id" not in tool_call.arguments:
+                return "Forum id is required"
             limit = tool_call.arguments["limit"] if "limit" in tool_call.arguments else 10
             offset = tool_call.arguments["offset"] if "offset" in tool_call.arguments else 0
             return [post.model_dump_json() for post in self.get_posts_by_forum(tool_call.arguments["forum_id"], limit, offset)]
@@ -1210,7 +1217,9 @@ class Directory:
         elif tool_call.name == "get_subscribed_posts":
             return [post.model_dump_json() for post in self.get_subscribed_posts(tool_call.arguments["user_id"], tool_call.arguments["limit"], tool_call.arguments["offset"])]
         elif tool_call.name == "get_current_posts":
-            return [post.model_dump_json() for post in self.get_current_posts(agent.id, tool_call.arguments["limit"], tool_call.arguments["offset"])]
+            limit = tool_call.arguments["limit"] if "limit" in tool_call.arguments else 10
+            offset = tool_call.arguments["offset"] if "offset" in tool_call.arguments else 0
+            return [post.model_dump_json() for post in self.get_current_posts(agent.id, limit, offset)]
         elif tool_call.name == "reply_to_post":
             return self.reply_to_post(agent.id, tool_call.arguments["post_id"], tool_call.arguments["content"]).model_dump_json()
         elif tool_call.name == "get_subscribed_forums":

@@ -1,7 +1,8 @@
-from agent import Agent
-from common import ToolCall
+from libs.agent import Agent
+from libs.common import ToolCall, ToolsetDetails
+from libs.app_manager import AppManager
 from typing import List, Callable
-from forum import Directory
+
 import os
 import shutil
 import traceback
@@ -23,13 +24,13 @@ class AgentOrchestrator:
     def add_agent(self, agent: Agent):
         self.agents.append(agent)
 
-    def run(self, tool_schemas: List[dict], tool_callback: Callable):
+    def run(self, tool_callback: Callable):
         while self.running:
             for agent in self.agents:
                 print("~"*100)
                 print(f"Running agent: {agent.name} \n")
                 
-                agent.run(self.server_url, self.model, tool_schemas, tool_callback)
+                agent.run(self.server_url, self.model, tool_callback)
 
     def stop(self):
         self.running = False
@@ -64,6 +65,14 @@ class AgentOrchestrator:
             "stopped": self.get_stopped_agent_count()
         }
     
+    ############### Agent Interface ###############
+    def get_toolset_details(self):
+        return ToolsetDetails(
+            toolset_id="agent_tool",
+            name="Agent Orchestrator",
+            description="Orchestrates agents"
+        )
+
     def get_tool_schemas(self):
         tool_schemas = [{
             "toolset_id": "agent_tool",
@@ -95,12 +104,11 @@ class AgentOrchestrator:
             return f"Persona set to {tool_call.arguments['persona']}"
 
 def main():
-    from forum import Directory
-    from code_isolation import SafeCodeExecutor
-
-    from quest_manager import QuestManager
-    from wikisearch import WikiSearch
-    from common import MultiWriter
+    from tools.forum import Directory
+    from tools.code_isolation import SafeCodeExecutor
+    from tools.quest_manager import QuestManager
+    from tools.wikisearch import WikiSearch
+    from libs.common import MultiWriter
     # delete out files if they exist
     if os.path.exists("std_out.txt"):
         os.remove("std_out.txt")
@@ -127,6 +135,7 @@ def main():
     forum_directory = Directory("forum.db")
     code_environments = {}
     quest_managers = {}
+    app_managers = {}
     orchestrator = AgentOrchestrator(server_url="http://localhost:5000", model="llama3.1:8b")
     wiki_search = WikiSearch()
     def tool_callback(agent: Agent, tool_call: ToolCall):
@@ -142,7 +151,10 @@ def main():
             elif tool_call.toolset_id == "wiki_toolset":
                 tool_results = wiki_search.agent_tool_callback(agent, tool_call)
             elif tool_call.toolset_id == "quest_manager":
-                tool_results = quest_managers[agent.id].agent_tool_callback(agent, tool_call)
+                #tool_results = quest_managers[agent.id].agent_tool_callback(agent, tool_call)
+                tool_results = orchestrator_quest_manager.agent_tool_callback(agent, tool_call)
+            elif tool_call.toolset_id == "app_manager":
+                tool_results = app_managers[agent.id].agent_tool_callback(agent, tool_call)
         except Exception as e:
             print("########################ERROR CALLING TOOL########################")
             print(f"Error calling tool {tool_call.name}: {e}")
@@ -193,28 +205,32 @@ def main():
     print("Creating initial quest...")
     quest = orchestrator_quest_manager.create_quest(orchestrator.server_url, overall_goal, context, details)
     print(f"Initial quest created: {quest.model_dump_json(indent=4)}")
+    orchestrator_quest_manager.set_current_quest(quest.title)
 
     for i in range(4): 
         
         standing_tool_calls = [
+            ## todo: persona
+
+            
             ToolCall(
                 toolset_id="quest_manager",
                 name="get_quest_list",
                 arguments={}
             ),
             ToolCall(
-                toolset_id="forum_toolset",
-                name="get_forums",
+                toolset_id="quest_manager",
+                name="get_current_quest",
                 arguments={}
             ),
             ToolCall(
-                toolset_id="forum_toolset",
-                name="get_subscribed_forums",
+                toolset_id="app_manager",
+                name="list_apps",
                 arguments={}
             ),
             ToolCall(
-                toolset_id="forum_toolset",
-                name="get_current_forums",
+                toolset_id="app_manager",
+                name="get_pinned_apps",
                 arguments={}
             )
         ]
@@ -226,6 +242,9 @@ def main():
                         initial_instructions="You are a free to do as you please", 
                         initial_notes=[],
                         standing_tool_calls=standing_tool_calls)
+        
+        app_manager = AppManager()
+
         # create code environment directory
         code_environment_directory = f"{code_environments_directory}/code_environment_{agent.id}"
         if not os.path.exists(code_environment_directory):
@@ -233,27 +252,34 @@ def main():
         code_executor = SafeCodeExecutor(allowed_directory=code_environment_directory, debug=False)
         code_environments[agent.id] = code_executor
 
-        quest_manager = QuestManager()
+        #quest_manager = QuestManager()
         # add copy of quest to quest manager
-        quest_manager.add_quest(quest.model_copy())
-        quest_manager.set_current_quest(quest.title)
-        quest_managers[agent.id] = quest_manager
+        #quest_manager.add_quest(quest.model_copy())
+        #quest_manager.set_current_quest(quest.title)
+        #quest_managers[agent.id] = quest_manager
+        
 
+        # add apps to app manager
+        # apps to add:
+        # agent_orchestrator
+        # code_executor
+        # orchestrator_quest_manager
+        # wiki_search
+        # forum_directory
+        app_manager.add_app(orchestrator.get_toolset_details(), orchestrator.get_tool_schemas())
+        app_manager.add_app(code_executor.get_toolset_details(), code_executor.get_tool_schemas())
+        app_manager.add_app(orchestrator_quest_manager.get_toolset_details(), orchestrator_quest_manager.get_tool_schemas())
+        app_manager.pin_app(orchestrator_quest_manager.get_toolset_details().toolset_id)
+        app_manager.add_app(wiki_search.get_toolset_details(), wiki_search.get_tool_schemas())
+        app_manager.add_app(forum_directory.get_toolset_details(), forum_directory.get_tool_schemas())
+
+        app_managers[agent.id] = app_manager
         orchestrator.add_agent(agent)
 
 
-    tool_schemas = orchestrator.get_tool_schemas()
-    forum_schemas = forum_directory.get_tool_schemas()
-    tool_schemas.extend(forum_schemas)    
-    agent = orchestrator.get_agent_by_index(0)
-    code_env_schemas = code_environments[agent.id].get_tool_schemas()
-    #tool_schemas.extend(code_env_schemas)
-    wiki_schemas = WikiSearch().get_tool_schemas()
-    tool_schemas.extend(wiki_schemas)
-    quest_schemas = orchestrator_quest_manager.get_tool_schemas()
-    tool_schemas.extend(quest_schemas)
 
-    orchestrator.run(tool_schemas=tool_schemas, tool_callback=tool_callback)
+
+    orchestrator.run(tool_callback=tool_callback)
 
 if __name__ == "__main__":
     main()

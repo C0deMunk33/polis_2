@@ -3,12 +3,8 @@ import wikipedia
 import bs4
 import traceback
 
-try:
-    from .common import ToolCall
-    from .agent import Agent
-except ImportError:
-    from common import ToolCall
-    from agent import Agent
+from libs.common import ToolCall, ToolsetDetails
+from libs.agent import Agent
 
 ########################
 # Monkey patch section #
@@ -29,6 +25,13 @@ bs4.BeautifulSoup.__init__ = _monkey_patched_init
 
 
 class WikiSearch:
+    def get_toolset_details(self):
+        return ToolsetDetails(
+            toolset_id="wiki_toolset",
+            name="Wiki Search",
+            description="Searches Wikipedia"
+        )
+
     def get_tool_schemas(self):
         return [{
             "toolset_id": "wiki_toolset",

@@ -1,11 +1,9 @@
 from pydantic import BaseModel, Field
 from typing import Dict, List
-try:
-    from .common import call_ollama_chat, Message, apply_unified_diff, ToolSchema, ToolCall
-    from .agent import Agent
-except ImportError:
-    from common import call_ollama_chat, Message, apply_unified_diff, ToolSchema, ToolCall
-    from agent import Agent
+
+from libs.common import call_ollama_chat, Message, apply_unified_diff, ToolSchema, ToolCall, ToolsetDetails
+from libs.agent import Agent
+
 
 # TODO: figure out why these keep happening, looks like it's the new version of ollama
 import warnings
@@ -14,7 +12,6 @@ warnings.filterwarnings(action="ignore", message="unclosed", category=ResourceWa
 class QuestStep(BaseModel):
     title: str = Field(description="The title of the step.")
     description: str = Field(description="A description of the step.")
-    notes: List[str] = Field(description="A list of notes about the step.")
     completion_criteria: str = Field(description="A description of the criteria for completing the step.")  
 
 class QuestGenerationOutput(BaseModel):
@@ -28,12 +25,6 @@ class QuestGenerationOutput(BaseModel):
     overall_goal: str = Field(description="The overall goal of the quest.")
     steps: List[QuestStep] = Field(description="An ordered list of steps that are designed to be completed in a specific order to complete the quest.")
 
-class QuestFile(BaseModel):
-    file_name: str = Field(description="The name of the file.")
-    file_content: str = Field(description="The content of the file.")
-    file_description: str = Field(description="A description of the file.")
-    notes: List[str] = Field(description="A list of notes about the file.")
-
 class Quest(BaseModel):
     quest_outline: List[str] = Field(description="A detailed outline of the quest.")
     quest_details: str = Field(description="A detailed description of the quest.")
@@ -43,7 +34,7 @@ class Quest(BaseModel):
     overall_goal: str = Field(description="The overall goal of the quest.")
     current_step: str = Field(description="The title of the current step of the quest.")
     steps: List[QuestStep] = Field(description="An ordered list of steps that are designed to be completed in a specific order to complete the quest. Leave out step numbers as these can be adjusted.")
-    files: List[QuestFile] = Field(description="A list of files that are associated with the quest.")
+    notes: List[str] = Field(description="A list of notes about the quest.")
 
 class QuestSubmission(BaseModel):
     quest_title: str = Field(description="The title of the quest.")
@@ -58,28 +49,20 @@ class QuestManager:
     def __init__(self):
         self.quests = {}
         self.current_quest_name = None
-        self.quest_files = {}
         self.quest_submissions = []
         names_of_tools_to_expose = [
             "get_quest_list",
             "create_quest",
-            "create_quest_file",
-            "get_quest_file_details",
-            "get_quest_file_content",
-            "add_quest_file_note",
-            "update_quest_file_description",
-            "delete_quest_file_note",
-            "update_quest_file_content",
             "get_quest",
             "get_quest_step",
             "get_current_quest",
             "get_current_quest_step",
-            "add_quest_step_note",
+            "add_quest_note",
             "insert_quest_step",
             "update_quest_step_description",
             "update_quest_step_completion_criteria",
             "delete_quest_step",
-            "delete_quest_step_note",
+            "delete_quest_note",
             "set_current_quest",
             "set_current_quest_step",
             "submit_quest_for_review",
@@ -101,7 +84,8 @@ class QuestManager:
         self.quests[quest.title] = quest
 
     def get_quest_list(self):
-        """{
+        """
+        {
             "toolset_id": "quest_manager",
             "name": "get_quest_list",
             "description": "Get the list of active quests.",
@@ -115,9 +99,9 @@ class QuestManager:
             for quest in self.quests.values():
                 if quest.status not in ["abandoned", "submitted for review"]:
                     if quest.title == self.current_quest_name:
-                        result += f"[current] {quest.title}\n"
+                        result += f"    - [current] {quest.title}\n"
                     else:
-                        result += f"{quest.title}\n"
+                        result += f"    - {quest.title}\n"
         return result
 
     def create_quest(self, llm_url: str, overall_goal: str, context: str, details: str):
@@ -177,245 +161,11 @@ Please respond with JSON in the following format:
             overall_goal=quest_generation_output.overall_goal,
             steps=quest_generation_output.steps,
             current_step=quest_generation_output.steps[0].title,
-            files=[]
+            notes=[]
         )
         self.quests[quest.title] = quest
         return quest
-    
-    def create_quest_file(self, llm_url: str, quest_title: str, file_name: str, file_content: str, file_description: str):
-        """
-        {
-            "toolset_id": "quest_manager",
-            "name": "create_quest_file",
-            "description": "Create a file for a quest.",
-            "arguments": [
-                {
-                    "name": "quest_title",
-                    "type": "str",
-                    "description": "The title of the quest."
-                },
-                {
-                    "name": "file_name",
-                    "type": "str",
-                    "description": "The name of the file."
-                },
-                {
-                    "name": "file_description",
-                    "type": "str",
-                    "description": "A description of the file."
-                },
-                {
-                    "name": "file_content",
-                    "type": "str",
-                    "description": "The content of the file. must be a string of text."
-                }
-            ]
-        }
-        """
-        quest = self.get_quest_by_title(quest_title)
-        if quest is None:
-            raise ValueError(f"Quest with name {quest_title} not found")
-        quest.files.append(QuestFile(file_name=file_name, file_content=file_content, file_description=file_description, notes=[]))
-        return quest
 
-    def get_quest_file_details(self, quest_title: str, file_name: str):
-        """
-        {
-            "toolset_id": "quest_manager",
-            "name": "get_quest_file_details",
-            "description": "Get the details of a file.",
-            "arguments": [{
-                "name": "quest_title",
-                "type": "str",
-                "description": "The title of the quest."
-            },
-            {
-                "name": "file_name",
-                "type": "str",
-                "description": "The name of the file."
-            }]
-        }
-        """
-        quest = self.get_quest_by_title(quest_title)
-        if quest is None:
-            return "Quest not found"
-        for file in quest.files:
-            if file.file_name == file_name:
-                result = f"Quest: {quest_title}\n"
-                result = f"File: {file_name}\n"
-                result += f"Description: {file.file_description}\n"
-                result += f"Notes:\n {'\n'.join([f'{index}: {note}' for index, note in enumerate(file.notes)])}"
-                return result
-        return "File not found"
-    
-    def get_quest_file_content(self, quest_title: str, file_name: str, show_line_numbers: bool = False):
-        """
-        {
-            "toolset_id": "quest_manager",
-            "name": "get_quest_file_content",
-            "description": "Get the content of a file.",
-            "arguments": [{
-                "name": "quest_title",
-                "type": "str",
-                "description": "The title of the quest."
-            },
-            {
-                "name": "file_name", 
-                "type": "str",
-                "description": "The name of the file."
-            },
-            {
-                "name": "show_line_numbers",
-                "type": "bool", 
-                "description": "Whether to show line numbers in the content."
-            }]
-        }
-        """
-        quest = self.get_quest_by_title(quest_title)
-        if quest is None:
-            return "Quest not found"
-        for file in quest.files:
-            if file.file_name == file_name:
-                if not show_line_numbers:
-                    return file.file_content
-                else:
-                    return "\n".join([f"{index}: {line}" for index, line in enumerate(file.file_content.splitlines())])
-            
-        return "File not found"
-               
-    def add_quest_file_note(self, quest_title: str, file_name: str, note: str):
-        """
-        {
-            "toolset_id": "quest_manager",
-            "name": "add_quest_file_note",
-            "description": "Add a note to a file.",
-            "arguments": [{
-                "name": "quest_title",
-                "type": "str",
-                "description": "The title of the quest."
-            },
-            {
-                "name": "file_name",
-                "type": "str",
-                "description": "The name of the file."
-            },
-            {
-                "name": "note",
-                "type": "str",
-                "description": "The note to add to the file."
-            }]
-        }
-        """
-        quest = self.get_quest_by_title(quest_title)
-        if quest is None:
-            return None
-        if file_name not in quest.files:
-            return f"Quest {quest_title} does not have a file named {file_name}"
-        quest.files[file_name].notes.append(note)
-        return f"Note added to file {file_name}: {note}"
-    
-    def update_quest_file_description(self, quest_title: str, file_name: str, file_description: str):
-        """
-        {
-            "toolset_id": "quest_manager",
-            "name": "update_quest_file_description",
-            "description": "Update the description of a file.",
-            "arguments": [
-                {
-                    "name": "quest_title",
-                    "type": "str",
-                    "description": "The title of the quest."
-                },
-                {
-                    "name": "file_name",
-                    "type": "str",
-                    "description": "The name of the file."
-                },
-                {
-                    "name": "file_description",
-                    "type": "str",
-                    "description": "The new description of the file."
-                }
-            ]
-        }
-        """
-        quest = self.get_quest_by_title(quest_title)
-        if quest is None:
-            return f"Quest {quest_title} not found"
-        if file_name not in quest.files:
-            return f"Quest {quest_title} does not have a file named {file_name}"
-        
-        quest.files[file_name].file_description = file_description
-        return f"File description updated for {file_name}: {file_description}"
-    
-    def delete_quest_file_note(self, quest_title: str, file_name: str, note_index: int):
-        """
-        {
-            "toolset_id": "quest_manager",
-            "name": "delete_quest_file_note",
-            "description": "Delete a note from a file.",
-            "arguments": [
-                {
-                    "name": "quest_title",
-                    "type": "str",
-                    "description": "The title of the quest."
-                },
-                {
-                    "name": "file_name",
-                    "type": "str",
-                    "description": "The name of the file."
-                },
-                {
-                    "name": "note_index",
-                    "type": "int",
-                    "description": "The index of the note to delete."
-                }
-            ]
-        }
-        """
-        quest = self.get_quest_by_title(quest_title)
-        if quest is None:
-            return f"Quest {quest_title} not found"
-        if file_name not in quest.files:
-            return f"Quest {quest_title} does not have a file named {file_name}"
-        quest.files[file_name].notes.pop(note_index)
-        return f"Quest {quest_title} file {file_name} note {note_index} deleted"
-    
-    def update_quest_file_content(self, quest_title: str, file_name: str, file_content_diff: str):
-        """
-        {
-            "toolset_id": "quest_manager",
-            "name": "update_quest_file_content",
-            "description": "Update the content of a file.",
-            "arguments": [
-                {
-                    "name": "quest_title",
-                    "type": "str",
-                    "description": "The title of the quest."
-                },
-                {
-                    "name": "file_name",
-                    "type": "str",
-                    "description": "The name of the file."
-                },
-                {
-                    "name": "file_content_diff",
-                    "type": "str",
-                    "description": "The diff of the file content. unified diff format."
-                }
-            ]
-        }
-        """
-        quest = self.get_quest_by_title(quest_title)
-        if quest is None:
-            return "Quest not found"
-        if file_name not in quest.files:
-            return "File not found"
-        file = quest.files[file_name]
-        # apply unified diff to file content
-        file.file_content = apply_unified_diff(file.file_content, file_content_diff)
-        return f"Quest {quest_title} file {file_name} content updated"
-  
     def get_quest(self, title: str):
         """
         {
@@ -429,30 +179,30 @@ Please respond with JSON in the following format:
             }]
         }
         """
-        result = ""
-        for quest in self.quests:
-            if quest.title == title:
-                if self.current_quest_name == quest.title:
-                    result += "Current Quest\n"
-                result += quest.title + "\n"
-                result += quest.description + "\n"
-                result += "Overall Goal: " + quest.overall_goal + "\n"
-                result += "Status: " + quest.status + "\n"
-                for index, step in enumerate(quest.steps):
-                    result +=  f"[{index}] " + step.title + "\n"                    
-                    if self.current_quest_name == quest.title and quest.current_step == step.title:
-                        result += "Current Step of Current Quest\n"
-                        result += step.description + "\n"
-                        result += "Completion Criteria: " + step.completion_criteria + "\n"
-                        result += "Notes: " + "\n".join([f"{index}: {note}" for index, note in enumerate(step.notes)]) + "\n"
-                    elif quest.current_step == step.title and self.current_quest_name != quest.title:
-                        result += "Current Step on non-current quest\n"
-                        result += step.description + "\n"
-                        result += "Completion Criteria: " + step.completion_criteria + "\n"
-                        result += "Notes: " + "\n".join([f"{index}: {note}" for index, note in enumerate(step.notes)]) + "\n"
-                        result += "Files:\n" + "\n".join([f"{file.file_name}: {file.file_description}" for file in quest.files]) + "\n"
-        if result == "":
-            return "No quest found"
+        
+        if title not in self.quests:
+            return "    [No quest found]\n"
+        
+        quest = self.quests[title]
+        
+        result = "Current Quest\n"
+        result += "    Title: " + quest.title + "\n"
+        result += "    Description: " + quest.description + "\n"
+        result += "    Overall Goal: " + quest.overall_goal + "\n"
+        result += "    Status: " + quest.status + "\n"
+        result += "    Notes: " + "\n".join([f"        [{index}]: {note}" for index, note in enumerate(quest.notes)]) + "\n"
+        result += "    Steps:\n"
+        for index, step in enumerate(quest.steps):
+            result +=  f"        [{index}] " + step.title + "\n"                    
+            if self.current_quest_name == quest.title and quest.current_step == step.title:
+                result += "            [Current Step of Current Quest]\n"
+                result += "            Description: " + step.description + "\n"
+                result += "            Completion Criteria: " + step.completion_criteria + "\n"
+            elif quest.current_step == step.title and self.current_quest_name != quest.title:
+                result += "            [Current Step on non-current quest]\n"
+                result += "            Description: " + step.description + "\n"
+                result += "            Completion Criteria: " + step.completion_criteria + "\n"
+        
         return result
     
     def get_quest_step(self, quest_title: str, step_title: str):
@@ -483,7 +233,6 @@ Please respond with JSON in the following format:
                     result += "Current Step\n"
                     result += step.description + "\n"
                     result += "Completion Criteria: " + step.completion_criteria + "\n"
-                    result += "Notes: " + "\n".join([f"{index}: {note}" for index, note in enumerate(step.notes)]) + "\n"
                 return result
         return None
 
@@ -515,20 +264,16 @@ Please respond with JSON in the following format:
                 return self.get_quest_step(self.current_quest_name, step.title)
         return "Current step not found"
     
-    def add_quest_step_note(self, quest_title: str, step_title: str, note: str):
+    def add_quest_note(self, quest_title: str, note: str):
         """
         {
             "toolset_id": "quest_manager",
-            "name": "add_quest_step_note",
-            "description": "Add a note to a quest step.",
+            "name": "add_quest_note",
+            "description": "Add a note to a quest.",
             "arguments": [{
                 "name": "quest_title", 
                 "type": "str",
                 "description": "The title of the quest."
-            },{
-                "name": "step_title",
-                "type": "str",
-                "description": "The title of the step."
             },{
                 "name": "note",
                 "type": "str",
@@ -538,10 +283,8 @@ Please respond with JSON in the following format:
         """ 
         quest = self.quests[quest_title]
         if quest is None:
-            raise ValueError(f"Quest with name {quest_title} not found")
-        if step_title not in quest.steps:
-            return f"Quest {quest_title} does not have a step named {step_title}"
-        quest.steps[step_title].notes.append(note)
+            return f"Quest with name {quest_title} not found \n"
+        quest.notes.append(note)
         return quest
     
     def insert_quest_step(self, index: int, quest_title: str, step_title: str, step_description: str, step_completion_criteria: str):
@@ -573,7 +316,7 @@ Please respond with JSON in the following format:
         quest = self.get_quest_by_title(quest_title)
         if quest is None:
             raise ValueError(f"Quest with name {quest_title} not found")
-        quest.steps.insert(index, QuestStep(title=step_title, description=step_description, completion_criteria=step_completion_criteria, notes=step_notes))
+        quest.steps.insert(index, QuestStep(title=step_title, description=step_description, completion_criteria=step_completion_criteria))
         return quest
     
     def update_quest_step_description(self, quest_title: str, step_title: str, step_description: str):
@@ -657,20 +400,16 @@ Please respond with JSON in the following format:
         quest.steps.pop(step_title)
         return f"Quest {quest_title} step {step_title} deleted"
 
-    def delete_quest_step_note(self, quest_title: str, step_title: str, note_index: int):
+    def delete_quest_note(self, quest_title: str, note_index: int):
         """
         {
             "toolset_id": "quest_manager",
-            "name": "delete_quest_step_note",
-            "description": "Delete a note from a quest step.",
+            "name": "delete_quest_note",
+            "description": "Delete a note from a quest.",
             "arguments": [{
                 "name": "quest_title",
                 "type": "str",
                 "description": "The title of the quest."
-            },{
-                "name": "step_title",
-                "type": "str",
-                "description": "The title of the step."
             },{
                 "name": "note_index",
                 "type": "int",
@@ -681,12 +420,10 @@ Please respond with JSON in the following format:
         quest = self.get_quest_by_title(quest_title)
         if quest is None:
             return "Quest not found"
-        if step_title not in quest.steps:
-            return "Step not found"
-        if note_index < 0 or note_index >= len(quest.steps[step_title].notes):
+        if note_index < 0 or note_index >= len(quest.notes):
             return "Note index out of bounds"
-        quest.steps[step_title].notes.pop(note_index)
-        return f"Quest {quest_title} step {step_title} note {note_index} deleted"
+        quest.notes.pop(note_index)
+        return f"Quest {quest_title} note {note_index} deleted"
 
     def set_current_quest(self, name: str):
         """
@@ -788,6 +525,13 @@ Please respond with JSON in the following format:
         return f"Quest {quest_title} abandoned"
     
     ############### Agent Interface ###############
+    def get_toolset_details(self):
+        return ToolsetDetails(
+            toolset_id="quest_manager",
+            name="Quest Manager",
+            description="Manages quests"
+        )
+    
     def get_tool_schemas(self):
         return [tool_schema.model_dump_json() for tool_schema in self.tool_schemas]
     
@@ -799,20 +543,7 @@ Please respond with JSON in the following format:
             return self.get_quest_list()
         elif tool_call.name == "create_quest":
             return self.create_quest(agent.default_llm_url, tool_call.arguments["overall_goal"], tool_call.arguments["context"], tool_call.arguments["details"]).model_dump_json()
-        elif tool_call.name == "create_quest_file":
-            return self.create_quest_file(tool_call.arguments["quest_title"], tool_call.arguments["file_name"], tool_call.arguments["file_content"], tool_call.arguments["file_description"], tool_call.arguments["file_notes"])
-        elif tool_call.name == "get_quest_file_details":
-            return self.get_quest_file_details(tool_call.arguments["quest_title"], tool_call.arguments["file_name"])
-        elif tool_call.name == "get_quest_file_content":
-            return self.get_quest_file_content(tool_call.arguments["quest_title"], tool_call.arguments["file_name"], tool_call.arguments["show_line_numbers"])
-        elif tool_call.name == "add_quest_file_note":
-            return self.add_quest_file_note(tool_call.arguments["quest_title"], tool_call.arguments["file_name"], tool_call.arguments["note"])
-        elif tool_call.name == "update_quest_file_description":
-            return self.update_quest_file_description(tool_call.arguments["quest_title"], tool_call.arguments["file_name"], tool_call.arguments["file_description"])
-        elif tool_call.name == "delete_quest_file_note":
-            return self.delete_quest_file_note(tool_call.arguments["quest_title"], tool_call.arguments["file_name"], tool_call.arguments["note_index"])
-        elif tool_call.name == "update_quest_file_content":
-            return self.update_quest_file_content(tool_call.arguments["quest_title"], tool_call.arguments["file_name"], tool_call.arguments["file_content_diff"])
+
         elif tool_call.name == "get_quest":
             return self.get_quest(tool_call.arguments["title"])
         elif tool_call.name == "get_quest_step":
@@ -821,8 +552,8 @@ Please respond with JSON in the following format:
             return self.get_current_quest()
         elif tool_call.name == "get_current_quest_step":
             return self.get_current_quest_step()
-        elif tool_call.name == "add_quest_step_note":
-            return self.add_quest_step_note(tool_call.arguments["quest_title"], tool_call.arguments["step_title"], tool_call.arguments["note"])
+        elif tool_call.name == "add_quest_note":
+            return self.add_quest_note(tool_call.arguments["quest_title"], tool_call.arguments["note"])
         elif tool_call.name == "insert_quest_step":
             return self.insert_quest_step(tool_call.arguments["index"], tool_call.arguments["quest_title"], tool_call.arguments["step_title"], tool_call.arguments["step_description"], tool_call.arguments["step_completion_criteria"])
         elif tool_call.name == "update_quest_step_description":
@@ -831,8 +562,8 @@ Please respond with JSON in the following format:
             return self.update_quest_step_completion_criteria(tool_call.arguments["quest_title"], tool_call.arguments["step_title"], tool_call.arguments["step_completion_criteria"])
         elif tool_call.name == "delete_quest_step":
             return self.delete_quest_step(tool_call.arguments["quest_title"], tool_call.arguments["step_title"])
-        elif tool_call.name == "delete_quest_step_note":
-            return self.delete_quest_step_note(tool_call.arguments["quest_title"], tool_call.arguments["step_title"], tool_call.arguments["note_index"])
+        elif tool_call.name == "delete_quest_note":
+            return self.delete_quest_note(tool_call.arguments["quest_title"], tool_call.arguments["note_index"])
         elif tool_call.name == "set_current_quest":
             return self.set_current_quest(tool_call.arguments["name"])
         elif tool_call.name == "set_current_quest_step":

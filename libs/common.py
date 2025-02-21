@@ -5,6 +5,9 @@ from markitdown import MarkItDown
 import semchunk
 from typing import List
 import difflib
+import base64
+import re
+
 def call_ollama_chat(server_url, model, messages, json_schema=None, temperature=None, tools=None):
     try:
         client = Client(
@@ -69,6 +72,11 @@ class ToolSchema(BaseModel):
     description: str
     arguments: List[dict]
 
+class ToolsetDetails(BaseModel):
+    toolset_id: str
+    name: str
+    description: str
+
 class Message(BaseModel):
     role: str
     content: str
@@ -92,7 +100,32 @@ class MultiWriter:
         for file in self.files:
             file.flush()
 
-
+def is_base64(string):
+    """
+    Check if a string is base64 encoded by looking at:
+    1. Character set (only valid base64 chars)
+    2. Length (must be multiple of 4)
+    3. Padding (proper = padding at end)
+    4. Successful decode attempt
+    """
+    # Base64 pattern: letters, numbers, +, /, and = for padding
+    base64_pattern = r'^[A-Za-z0-9+/]*={0,2}$'
+    
+    try:
+        # Check if string matches base64 pattern
+        if not re.match(base64_pattern, string):
+            return False
+            
+        # Check if length is multiple of 4 (base64 requirement)
+        if len(string) % 4 != 0:
+            return False
+            
+        # Try to decode - if successful, likely base64
+        base64.b64decode(string)
+        return True
+        
+    except Exception:
+        return False
 
 
 

@@ -9,15 +9,11 @@ import shutil
 import hashlib
 import matplotlib
 from pydantic import BaseModel
-from get_directory_structure import get_directory_structure
+from libs.get_directory_structure import get_directory_structure
 from datetime import datetime
 from typing import Optional
-try:
-    from .common import ToolSchema, ToolCall
-    from .agent import Agent
-except ImportError:
-    from common import ToolSchema, ToolCall
-    from agent import Agent
+from libs.common import ToolSchema, ToolCall, ToolsetDetails
+from libs.agent import Agent
 
 class CodeFile(BaseModel):
     filename: str
@@ -171,12 +167,6 @@ class SafeCodeExecutor:
             
             if name in self.imported_modules:
                 return self.imported_modules[name]
-            
-            # Special handling for matplotlib.pyplot
-            if name == 'matplotlib.pyplot':
-                import matplotlib.pyplot
-                self.imported_modules[name] = matplotlib.pyplot
-                return matplotlib.pyplot
             
             # For other modules
             module = importlib.import_module(name)
@@ -548,6 +538,13 @@ class SafeCodeExecutor:
         return f"File {filename} edited with diff"
 
     ############ AGENT INTERFACE ############
+    def get_toolset_details(self):
+        return ToolsetDetails(
+            toolset_id="code_runner",
+            name="Code Runner",
+            description="Runs code in a safe environment"
+        )
+
     def get_tool_schemas(self):
         return [tool_schema.model_dump_json() for tool_schema in self.tool_schemas]
     
