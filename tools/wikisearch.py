@@ -3,7 +3,7 @@ import wikipedia
 import bs4
 import traceback
 
-from libs.common import ToolCall, ToolsetDetails
+from libs.common import ToolCall, ToolsetDetails, ToolSchema
 from libs.agent import Agent
 
 ########################
@@ -33,17 +33,19 @@ class WikiSearch:
         )
 
     def get_tool_schemas(self):
-        return [{
-            "toolset_id": "wiki_toolset",
-            "name": "get_wikipedia_text",
-            "arguments": {
-                "title": {
+        tool_schema = ToolSchema(
+            toolset_id="wiki_toolset",
+            name="get_wikipedia_text",
+            arguments=[
+                {
+                    "name": "title",
                     "type": "string",
                     "description": "Title of the Wikipedia page to retrieve"
                 }
-            },
-            "description": "Fetches Wikipedia text, title, and url. only call one of these per pass as to not overwhelm the API and your context.",
-        }]
+            ],
+            description="Fetches Wikipedia text, title, and url. only call one of these per pass as to not overwhelm the API and your context.",
+        ).model_dump_json()
+        return [tool_schema]
     
     def agent_tool_callback(self, agent: Agent, tool_call: ToolCall):
         tool_results = None

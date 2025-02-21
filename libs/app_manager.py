@@ -15,10 +15,8 @@ class AppManager:
         self.self_tool_schemas = []
 
         names_of_tools_to_expose = [
-            "list_apps",
             "pin_app",
-            "unpin_app",
-            "get_pinned_apps",
+            "unpin_app"
         ]
 
         for name in names_of_tools_to_expose:
@@ -41,11 +39,12 @@ class AppManager:
         {
             "toolset_id": "app_manager",
             "name": "list_apps",
-            "description": "gets a list of all apps",
+            "description": "gets a list of all apps, you can only call tools from pinned apps",
             "arguments": []
         }
         """
         result = "Available apps:\n"
+        result += "(note: you can only call tools from pinned apps)\n"
         for app in self.apps.values():
             if app.toolset_id in self.pinned_app_ids:
                 result += f"    [pinned] {app.toolset_id} - {app.name} - {app.description}\n"
@@ -58,7 +57,7 @@ class AppManager:
         {
             "toolset_id": "app_manager",
             "name": "pin_app",
-            "description": "pins an app, this makes their functions available to you.",
+            "description": "pins an app, this makes their tools available to you to call.",
             "arguments": [{
                 "name": "app_id",
                 "type": "string",
@@ -98,15 +97,11 @@ class AppManager:
             "description": "gets details of currently pinned apps and their tools",
             "arguments": []
         }"""
-        result = "Pinned Apps:\n"
+        result = "Available Tools:\n"
+        result += "(note: these are the only tools available to you at this time)\n"
         for app_id in self.pinned_app_ids:
-            result += f"    App Name: {self.apps[app_id].name}\n"
-            result += f"    - Toolset ID: {self.apps[app_id].toolset_id}\n"
-            result += f"    - App Description: {self.apps[app_id].description}\n"
-            result +=  "    - Tools:\n"
             for schema in self.schemas[app_id]:
                 tool_schema = ToolSchema.model_validate_json(schema)
-                arg_string = ""
                 # arguments is a list of dictionaries
                 result += f"        toolset_id='{tool_schema.toolset_id}' name='{tool_schema.name}' description='{tool_schema.description}' arguments='{tool_schema.arguments}'\n"
                
@@ -117,7 +112,7 @@ class AppManager:
         return ToolsetDetails(
             toolset_id="app_manager",
             name="App Manager",
-            description="Manages apps"
+            description="Manages apps. Tools available are from pinned apps. An app must be pinned to be used."
         )
     
     def get_tool_schemas(self):

@@ -207,7 +207,7 @@ def main():
     print(f"Initial quest created: {quest.model_dump_json(indent=4)}")
     orchestrator_quest_manager.set_current_quest(quest.title)
 
-    for i in range(4): 
+    for i in range(1): 
         
         standing_tool_calls = [
             ## todo: persona

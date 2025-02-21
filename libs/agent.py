@@ -12,8 +12,6 @@ import traceback
 import warnings
 warnings.filterwarnings(action="ignore", message="unclosed", category=ResourceWarning)
 
-   
-
 class AgentOutputSchema(BaseModel):
     thoughts: str = Field(description="your thoughts. This is part of your chain of thought process.")
     followup_thoughts: str = Field(description="your followup thoughts. This is part of your chain of thought process.")
@@ -52,30 +50,41 @@ class Agent:
         
     def get_system_prompt(self, standing_tool_results: str):
         return f"""You are an advanced synthetic being. You are in an internal monologue loop, you can only interact with the world through the available apps.
-
+Context:
 {standing_tool_results}
+* Current local time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+* Only tools from pinned apps can be called.
+* You can only call up to 5 tools in one pass.
+* If a tool call fails, ensure you have the appropriate tools to fix the issue.
 
-Current local time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-
-Please respond in the following JSON format:
+You must respond in the following JSON format:
 {AgentOutputSchema.model_json_schema()}
 """
 
     def call_tools(self, tool_calls: List[ToolCall], tool_callback: Callable):
         
         self.latest_pass_tool_call_results = []
+
+        if len(tool_calls) == 0:
+            return
+
+        print(f"Calling tools:")
+        # add assistant tool call message
+        self.add_message(Message(role="assistant", tool_calls=tool_calls))
+        self.latest_pass_tool_call_results.append(Message(role="assistant", tool_calls=tool_calls))
+
         for tool_call in tool_calls:
             tool_results = tool_callback(self, tool_call)
             if tool_results is not None:
                 if type(tool_results) == str:
                     self.add_message(Message(role="tool", content=tool_results))
-                    self.latest_pass_tool_call_results.append(tool_results)
+                    self.latest_pass_tool_call_results.append(Message(role="tool", content=tool_results))
                 elif type(tool_results) == dict:
                     self.add_message(Message(role="tool", content=json.dumps(tool_results)))
-                    self.latest_pass_tool_call_results.append(json.dumps(tool_results))
+                    self.latest_pass_tool_call_results.append(Message(role="tool", content=json.dumps(tool_results)))
                 elif type(tool_results) == int:
                     self.add_message(Message(role="tool", content=str(tool_results)))
-                    self.latest_pass_tool_call_results.append(str(tool_results))
+                    self.latest_pass_tool_call_results.append(Message(role="tool", content=str(tool_results)))
                 elif type(tool_results) == list:
                     result_string = ""
                     for result in tool_results:
@@ -84,7 +93,7 @@ Please respond in the following JSON format:
                         else:
                             result_string += str(result)
                     self.add_message(Message(role="tool", content=result_string))
-                    self.latest_pass_tool_call_results.append(result_string)
+                    self.latest_pass_tool_call_results.append(Message(role="tool", content=result_string))
                 else:
                     print("~"*100)
                     print("~"*100)
@@ -109,35 +118,54 @@ Please respond in the following JSON format:
                 tool_results.append(tool_result)
         return "\n".join(tool_results)
 
-    def get_pass_summary(self, llm_url: str, response: AgentOutputSchema):
-        summary_system_prompt = f"""your task is to list the actions taken, list any notes to save for later and summarize what happened in the most recent pass of the agent, then you need to write an instruction for the next pass of the agent."""
-        summary_user_prompt = f"""Given the following recent agent pass output, summarize the pass in the following JSON format:
+    def get_pass_summary(self, llm_url: str, response: AgentOutputSchema, standing_tool_results: str):
+        
+        last_pass_summary = ""
+        if len(self.pass_summaries) > 0:
+            last_pass_summary = f"Last Pass Summary:\n    {self.pass_summaries[-1].summary}"
 
-Recent Summary:
-{ "\n".join([f"{i}: {summary.summary}" for i, summary in enumerate(self.pass_summaries[-10:])]) }
+        summary_system_prompt = f"""your task is to list the actions taken, list any notes to save for later and summarize what happened in the most recent pass of the agent, then you need to write an instruction for the next pass of the agent.
+
+Agent Context:
+{standing_tool_results}
+
+What follows is the tool calls and results from the latest pass of the agent.
+"""
+        summary_user_prompt = f"""Given the following recent agent pass output, and all available context, summarize the pass in the following JSON format:
+{last_pass_summary}
 
 Most Recent Pass Output:
     Thoughts:
-        {response.thoughts}
+        {response.thoughts + response.followup_thoughts}
 
-        {response.followup_thoughts}
+* If a tool call failed, ensure the agent has the oppropriate tools to fix the issue.
 
-    Tools Called:
-        {"\n".join([f"{i}: {tool_call.name} with arguments: {tool_call.arguments}" for i, tool_call in enumerate(response.tool_calls)])}
-
-Please summarize the pass in the following JSON format:
+You must respond in the following JSON format:
 {AgentSummarySchema.model_json_schema()}
 """
         
         messages = [Message(role="system", content=summary_system_prompt)]
-        
-        for tool_result in self.latest_pass_tool_call_results:
-            messages.append(Message(role="tool", content=tool_result))
-
+        messages.extend(self.latest_pass_tool_call_results)
         messages.append(Message(role="user", content=summary_user_prompt))
 
-        summary_response = call_ollama_chat(llm_url, "llama3.1:8b", messages, AgentSummarySchema.model_json_schema())
-        return AgentSummarySchema.model_validate_json(summary_response)
+
+
+
+        try:    
+            summary_response = call_ollama_chat(llm_url, "llama3.1:8b", messages, AgentSummarySchema.model_json_schema())
+            return AgentSummarySchema.model_validate_json(summary_response)
+        except Exception as e:
+            print("######################### Summary Messages #########################")
+            for message in messages:
+                if message.tool_calls is not None:
+                    print(f"{message.role}: {message.tool_calls}")
+                else:   
+                    print(f"{message.role}: {message.content}")
+            print("######################### Summary Messages #########################")
+            print(f"Error validating summary response: {e}")
+            print(f"Summary response: {summary_response}")
+            print(f"Stack trace: {traceback.format_exc()}")
+            raise e
     
     def run(self, llm_url: str, model: str, tool_callback: Callable):
         if not self.running:
@@ -149,11 +177,22 @@ Please summarize the pass in the following JSON format:
 
         system_prompt = self.get_system_prompt(standing_tool_results)
 
-        print()
-        print("System prompt:")
-        print(system_prompt)
-        print()
-        final_message_buffer = [Message(role="system", content=system_prompt)] + self.message_buffer
+        
+        if len(self.pass_summaries) > 0:
+            prev_summary = self.pass_summaries[-1]
+            prev_summary_string = "Summary of the last pass: " + prev_summary.summary + "\n\n" + "Instructions: " + prev_summary.instructions_for_next_pass
+            final_message_buffer = [Message(role="system", content=system_prompt)] + self.message_buffer + [Message(role="user", content=prev_summary_string)]
+        else:
+            final_message_buffer = [Message(role="system", content=system_prompt)] + self.message_buffer
+        """
+        print("######################### Message Buffer #########################")
+        for message in final_message_buffer:
+            if message.tool_calls is not None:
+                print(f"{message.role}: {message.tool_calls}")
+            else:
+                print(f"{message.role}: {message.content}")
+        print("######################### Message Buffer #########################")
+        """
 
         response = call_ollama_chat(llm_url, model, final_message_buffer, AgentOutputSchema.model_json_schema())
         try:
@@ -168,18 +207,16 @@ Please summarize the pass in the following JSON format:
         print(response.thoughts)
         print(f"Followup thoughts:")
         print(response.followup_thoughts)
-        print(f"Calling tools:")
 
         if not response.should_continue:    
             self.running = False
 
         self.call_tools(response.tool_calls, tool_callback)
         
-        summary = self.get_pass_summary(llm_url, response)
+        summary = self.get_pass_summary(llm_url, response, standing_tool_results)
         
         self.pass_summaries.append(summary)
         self.notes.extend(summary.notes)
 
-        summary_string = "Summary of the last pass: " + summary.summary + "\n\n" + "Instructions: " + summary.instructions_for_next_pass
-
-        self.add_message(Message(role="user", content= summary_string))
+        
+        

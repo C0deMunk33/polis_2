@@ -3,10 +3,11 @@ import random
 from pydantic import BaseModel
 from markitdown import MarkItDown
 import semchunk
-from typing import List
+from typing import List, Optional
 import difflib
 import base64
 import re
+import traceback
 
 def call_ollama_chat(server_url, model, messages, json_schema=None, temperature=None, tools=None):
     try:
@@ -19,7 +20,7 @@ def call_ollama_chat(server_url, model, messages, json_schema=None, temperature=
             #model='MFDoom/deepseek-r1-tool-calling:14b',
             model='huggingface.co/bartowski/Qwen2.5-14B-Instruct-1M-GGUF',
             stream=False,
-            messages=messages,
+            messages=[m.chat_ml() for m in messages],
             format=json_schema,
             tools=tools,
             options={
@@ -33,8 +34,10 @@ def call_ollama_chat(server_url, model, messages, json_schema=None, temperature=
         print("~~~~~~~~~~~~~~~~~~~~~~~")
         print("Error")
         print(error)
+        # print the stack trace
+        print(traceback.format_exc())
         print("~~~~~~~~~~~~~~~~~~~~~~~")
-        return "error"
+        return error
     
 def embed_with_ollama(server_url, text, model="nomic-embed-text"):
     client = Client(
@@ -79,13 +82,29 @@ class ToolsetDetails(BaseModel):
 
 class Message(BaseModel):
     role: str
-    content: str
+    content: Optional[str] = None
+    tool_calls: Optional[List[ToolCall]] = None
     
     def chat_ml(self):
-        return {
-            "role": self.role,
-            "content": self.content
-        }
+        if self.tool_calls is not None and len(self.tool_calls) > 0:
+            tool_calls = []
+            for tool_call in self.tool_calls:
+                tool_calls.append({
+                    "type": "function",
+                    "function": {
+                        "name": tool_call.toolset_id + "." + tool_call.name,
+                        "arguments": tool_call.arguments
+                    }
+                })
+            return {
+                "role": self.role,
+                "tool_calls": tool_calls
+            }
+        else:
+            return {
+                "role": self.role,
+                "content": self.content
+            }
     
 class MultiWriter:
     def __init__(self, *files):

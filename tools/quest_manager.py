@@ -205,7 +205,7 @@ Please respond with JSON in the following format:
         
         return result
     
-    def get_quest_step(self, quest_title: str, step_title: str):
+    def get_quest_step(self, quest_title: str, step_index: int):
         """
         {
             "toolset_id": "quest_manager",
@@ -216,9 +216,9 @@ Please respond with JSON in the following format:
                 "type": "str",
                 "description": "The title of the quest."
             },{
-                "name": "step_title",
-                "type": "str",
-                "description": "The title of the step."
+                "name": "step_index",
+                "type": "int",
+                "description": "The index of the step."
             }]
         }
         """
@@ -227,7 +227,7 @@ Please respond with JSON in the following format:
             raise ValueError(f"Quest with name {quest_title} not found")
         result = f"Quest: {quest_title}\n"
         for index, step in enumerate(quest.steps):
-            if step.title == step_title:
+            if index == step_index:
                 result += f"[{index}] " + step.title + "\n"                    
                 if self.current_quest_name == quest.title and quest.current_step == step.title:
                     result += "Current Step\n"
@@ -259,9 +259,9 @@ Please respond with JSON in the following format:
         quest = self.get_quest_by_title(self.current_quest_name)
         if quest is None:
             return "Quest not found"
-        for step in quest.steps:
+        for index, step in enumerate(quest.steps):
             if step.title == quest.current_step:
-                return self.get_quest_step(self.current_quest_name, step.title)
+                return self.get_quest_step(self.current_quest_name, index)
         return "Current step not found"
     
     def add_quest_note(self, quest_title: str, note: str):
@@ -285,15 +285,19 @@ Please respond with JSON in the following format:
         if quest is None:
             return f"Quest with name {quest_title} not found \n"
         quest.notes.append(note)
-        return quest
+        return f"Quest {quest_title} note added: {note}"
     
-    def insert_quest_step(self, index: int, quest_title: str, step_title: str, step_description: str, step_completion_criteria: str):
+    def insert_quest_step(self, step_index: int, quest_title: str, step_title: str, step_description: str, step_completion_criteria: str):
         """
         {
             "toolset_id": "quest_manager",
             "name": "insert_quest_step",
             "description": "Insert a quest step.",
             "arguments": [{
+                "name": "step_index",
+                "type": "int",
+                "description": "The index of the step."
+            },{
                 "name": "quest_title",
                 "type": "str",
                 "description": "The title of the quest."
@@ -316,8 +320,8 @@ Please respond with JSON in the following format:
         quest = self.get_quest_by_title(quest_title)
         if quest is None:
             raise ValueError(f"Quest with name {quest_title} not found")
-        quest.steps.insert(index, QuestStep(title=step_title, description=step_description, completion_criteria=step_completion_criteria))
-        return quest
+        quest.steps.insert(step_index, QuestStep(title=step_title, description=step_description, completion_criteria=step_completion_criteria))
+        return f"Quest {quest_title} step {step_title} inserted at index {step_index}"
     
     def update_quest_step_description(self, quest_title: str, step_title: str, step_description: str):
         """
@@ -344,7 +348,7 @@ Please respond with JSON in the following format:
         if quest is None:
             raise ValueError(f"Quest with name {quest_title} not found")
         quest.steps[step_title].description = step_description
-        return quest
+        return f"Quest {quest_title} step {step_title} description updated"
     
     def update_quest_step_completion_criteria(self, quest_title: str, step_title: str, step_completion_criteria: str):
         """
@@ -547,7 +551,7 @@ Please respond with JSON in the following format:
         elif tool_call.name == "get_quest":
             return self.get_quest(tool_call.arguments["title"])
         elif tool_call.name == "get_quest_step":
-            return self.get_quest_step(tool_call.arguments["quest_title"], tool_call.arguments["step_title"])
+            return self.get_quest_step(tool_call.arguments["quest_title"], tool_call.arguments["step_index"])
         elif tool_call.name == "get_current_quest":
             return self.get_current_quest()
         elif tool_call.name == "get_current_quest_step":
@@ -555,7 +559,7 @@ Please respond with JSON in the following format:
         elif tool_call.name == "add_quest_note":
             return self.add_quest_note(tool_call.arguments["quest_title"], tool_call.arguments["note"])
         elif tool_call.name == "insert_quest_step":
-            return self.insert_quest_step(tool_call.arguments["index"], tool_call.arguments["quest_title"], tool_call.arguments["step_title"], tool_call.arguments["step_description"], tool_call.arguments["step_completion_criteria"])
+            return self.insert_quest_step(tool_call.arguments["step_index"], tool_call.arguments["quest_title"], tool_call.arguments["step_title"], tool_call.arguments["step_description"], tool_call.arguments["step_completion_criteria"])
         elif tool_call.name == "update_quest_step_description":
             return self.update_quest_step_description(tool_call.arguments["quest_title"], tool_call.arguments["step_title"], tool_call.arguments["step_description"])
         elif tool_call.name == "update_quest_step_completion_criteria":
