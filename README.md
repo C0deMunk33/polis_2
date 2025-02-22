@@ -25,8 +25,8 @@ poetry run python agent_orchestrator.py
 * Code Isolation
 * File Manager
 * Forum
-* Notes (in progress)
-* Persona (in progress)
+* Notes
+* Persona
 * Quest Manager
 * Rag
 * Wikisearch

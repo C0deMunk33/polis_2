@@ -157,8 +157,7 @@ def main():
             elif tool_call.toolset_id == "wiki_toolset":
                 tool_results = wiki_search.agent_tool_callback(agent, tool_call)
             elif tool_call.toolset_id == "quest_manager":
-                #tool_results = quest_managers[agent.id].agent_tool_callback(agent, tool_call)
-                tool_results = orchestrator_quest_manager.agent_tool_callback(agent, tool_call)
+                tool_results = quest_managers[agent.id].agent_tool_callback(agent, tool_call)
             elif tool_call.toolset_id == "app_manager":
                 tool_results = app_managers[agent.id].agent_tool_callback(agent, tool_call)
             elif tool_call.toolset_id == "file_manager":
@@ -202,17 +201,17 @@ def main():
 
     # create initial quest
 
-    orchestrator_quest_manager = QuestManager() # create quest manager for this orchestrator
+    #orchestrator_quest_manager = QuestManager() # create quest manager for this orchestrator
     overall_goal = "research Monty Python as a group, and their impact on comedy and culture as both a troupe and as individual members. I would like a detailed report on the impact of Monty Python on comedy and culture."
     details = """
     Wikepedia has a lot of information about Monty Python, and their individual members. They were super popular, so I am wondering what their larger impact on comedy and culture was.
     """
     context = "you have tools available to you to help you complete the quest"
     
-    print("Creating initial quest...")
-    quest = orchestrator_quest_manager.create_quest(orchestrator.server_url, overall_goal, context, details)
-    print(f"Initial quest created: {quest.model_dump_json(indent=4)}")
-    orchestrator_quest_manager.set_current_quest(quest.title)
+    #print("Creating initial quest...")
+    #quest = orchestrator_quest_manager.create_quest(orchestrator.server_url, overall_goal, context, details)
+    #print(f"Initial quest created: {quest.model_dump_json(indent=4)}")
+    #orchestrator_quest_manager.set_current_quest(quest.title)
 
     shared_file_directory = "shared_files"
     if os.path.exists(shared_file_directory):
@@ -223,7 +222,7 @@ def main():
     file_manager = FileManager(shared_file_directory)
 
    
-    for i in range(1): 
+    for i in range(10): 
         
         standing_tool_calls = [
             ToolCall(
@@ -256,7 +255,7 @@ def main():
         agent = Agent(  default_llm_url=orchestrator.server_url,
                         name=f"agent{i}", 
                         private_key=f"{i}asdasdasdasd", 
-                        initial_instructions="This is the beginning of your journey. You can use any tools available to you. Note that you do have an active quest, so you should try to complete it.", 
+                        initial_instructions="This is the beginning of your journey. You can use any tools available to you.", 
                         initial_notes=[],
                         standing_tool_calls=standing_tool_calls)
         
@@ -269,11 +268,15 @@ def main():
         notes_manager = NotesManager()
         notes_managers[agent.id] = notes_manager
 
+        quest_manager = QuestManager()
+        quest_managers[agent.id] = quest_manager
+
+
         app_manager.add_app(persona_manager.get_toolset_details(), persona_manager.get_tool_schemas())
         app_manager.add_app(orchestrator.get_toolset_details(), orchestrator.get_tool_schemas())
         app_manager.add_app(shared_code_runner.get_toolset_details(), shared_code_runner.get_tool_schemas())
-        app_manager.add_app(orchestrator_quest_manager.get_toolset_details(), orchestrator_quest_manager.get_tool_schemas())
-        app_manager.load_app(orchestrator_quest_manager.get_toolset_details().toolset_id)
+        app_manager.add_app(quest_manager.get_toolset_details(), quest_manager.get_tool_schemas())
+        app_manager.load_app(quest_manager.get_toolset_details().toolset_id)
         app_manager.add_app(wiki_search.get_toolset_details(), wiki_search.get_tool_schemas())
         app_manager.add_app(forum_directory.get_toolset_details(), forum_directory.get_tool_schemas())
         app_manager.add_app(file_manager.get_toolset_details(), file_manager.get_tool_schemas())

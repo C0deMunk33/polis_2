@@ -44,7 +44,7 @@ class PersonaManager:
             result += f"{index}: {name} - {self.personas[name].description}\n"
         return result
     
-    def create_persona(self, description: str = None, name: str = None):
+    def create_persona(self, llm_url: str, model: str, description: str = None, name: str = None):
         """
         {
             "toolset_id": "persona",
@@ -75,7 +75,7 @@ Respond in the following JSON format:
             Message(role="system", content=persona_creation_system_prompt),
             Message(role="user", content=persona_creation_user_prompt)
         ]
-        persona_output = call_ollama_chat(messages)
+        persona_output = call_ollama_chat(llm_url, model, messages, json_schema=Persona.model_json_schema())
         persona = Persona.model_validate_json(persona_output)
         self.personas[name] = persona
         return f"Persona {name} created: \n{persona}"
@@ -163,7 +163,7 @@ Respond in the following JSON format:
         if tool_call.name == "get_persona_list":
             return self.get_persona_list()
         elif tool_call.name == "create_persona":
-            return self.create_persona(tool_call.arguments["description"], tool_call.arguments["name"])
+            return self.create_persona(agent.default_llm_url, agent.model, tool_call.arguments["description"], tool_call.arguments["name"])
         elif tool_call.name == "get_persona":
             return self.get_persona(tool_call.arguments["index"])
         elif tool_call.name == "remove_persona":

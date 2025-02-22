@@ -28,6 +28,7 @@ class AgentSummarySchema(BaseModel):
 class Agent:
     def __init__(self, default_llm_url: str, name: str, private_key: str, initial_instructions: str, initial_notes: List[str], buffer_size: int = 20, running: bool = True, standing_tool_calls: List[ToolCall] = []):
         self.default_llm_url = default_llm_url
+        self.model = "TODO"
         self.name = name
         self.private_key = private_key
         self.notes = initial_notes

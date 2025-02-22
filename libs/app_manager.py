@@ -62,6 +62,7 @@ class AppManager:
         result += "\nApp Manager Tools:\n"
         for tool_schema in self.self_tool_schemas:
             result += f"  (toolset_id: {tool_schema.toolset_id}) {tool_schema.name}({",".join([arg['name'] for arg in tool_schema.arguments])}) - description: {tool_schema.description}\n"
+        print()
         print(result)
         return result
     
