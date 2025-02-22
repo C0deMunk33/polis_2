@@ -11,12 +11,12 @@ class AppManager:
     def __init__(self):
         self.apps = {}
         self.schemas = {}
-        self.pinned_app_ids = ["app_manager"] # these are the tools that are currently available to the agent, app manager is always pinned
+        self.loaded_app_ids = ["app_manager"] # these are the tools that are currently available to the agent, app manager is always loaded
         self.self_tool_schemas = []
 
         names_of_tools_to_expose = [
-            "pin_app",
-            "unpin_app"
+            "load_app",
+            "unload_app"
         ]
 
         for name in names_of_tools_to_expose:
@@ -39,67 +39,102 @@ class AppManager:
         {
             "toolset_id": "app_manager",
             "name": "list_apps",
-            "description": "gets a list of all apps, you can only call tools from pinned apps",
+            "description": "gets a list of all apps, you can only call tools from loaded apps",
             "arguments": []
         }
         """
         result = "Available apps:\n"
-        result += "(note: you can only call tools from pinned apps)\n"
+        # sort apps by loaded status
+        loaded_apps = []
+        unloaded_apps = []
         for app in self.apps.values():
-            if app.toolset_id in self.pinned_app_ids:
-                result += f"    [pinned] {app.toolset_id} - {app.name} - {app.description}\n"
+            if app.toolset_id in self.loaded_app_ids:
+                loaded_apps.append(app)
             else:
-                result += f"    {app.toolset_id} - {app.name} - {app.description}\n"
+                unloaded_apps.append(app)
+        loaded_apps.sort(key=lambda x: x.name)
+        unloaded_apps.sort(key=lambda x: x.name)
+        for app in loaded_apps:
+            result += f"    [loaded] {app.toolset_id} - {app.name} - {app.description}\n"
+        for app in unloaded_apps:
+            result += f"    [unloaded] {app.toolset_id} - {app.name} - {app.description}\n"
+
+        result += "\nApp Manager Tools:\n"
+        for tool_schema in self.self_tool_schemas:
+            result += f"  (toolset_id: {tool_schema.toolset_id}) {tool_schema.name}({",".join([arg['name'] for arg in tool_schema.arguments])}) - description: {tool_schema.description}\n"
+        print(result)
         return result
     
-    def pin_app(self, app_id: str):
+    def load_app(self, app_id: str):
         """
         {
             "toolset_id": "app_manager",
-            "name": "pin_app",
-            "description": "pins an app, this makes their tools available to you to call.",
+            "name": "load_app",
+            "description": "loads an app, this makes their tools available to you to call.",
             "arguments": [{
                 "name": "app_id",
                 "type": "string",
-                "description": "the id of the app to pin"
+                "description": "the toolset_id of the app to load"
             }]
         }
         """
         if app_id not in self.apps:
             return f"App {app_id} not found"
-        self.pinned_app_ids.append(app_id)
-        return f"Pinned app {app_id} - {self.apps[app_id].name}"
+        self.loaded_app_ids.append(app_id)
+        result = f"Loaded app {app_id} - {self.apps[app_id].name}\n{self.get_app_tool_list(app_id)}"
+        return result
 
-    def unpin_app(self, app_id: str):
+    def unload_app(self, app_id: str):
         """
         {
             "toolset_id": "app_manager",
-            "name": "unpin_app",
-            "description": "unpins an app.",
+            "name": "unload_app",
+            "description": "unloads an app.",
             "arguments": [{
                 "name": "app_id",
                 "type": "string",
-                "description": "the id of the app to unpin"
+                "description": "the id of the app to unload"
             }]
         }
         """
-        # cannot unpin the app manager
+        # cannot unload the app manager
         if app_id == "app_manager":
-            return "Cannot unpin the app manager"
-        self.pinned_app_ids.remove(app_id)
-        return f"Unpinned app {app_id}"
+            return "Cannot unload the app manager"
+        if app_id not in self.loaded_app_ids:
+            return f"App {app_id} is not loaded"
+        self.loaded_app_ids.remove(app_id)
+        return f"Unloaded app {app_id}"
 
-    def get_pinned_apps(self):
+    def get_app_tool_list(self, app_id: str):
         """
         {
             "toolset_id": "app_manager",
-            "name": "get_pinned_apps",
-            "description": "gets details of currently pinned apps and their tools",
+            "name": "get_app_tool_list",
+            "description": "gets a list of all tools available for an app",
+            "arguments": [{
+                "name": "app_id",
+                "type": "string",
+                "description": "the id of the app to get the tool list for"
+            }]
+        }
+        """
+        result = "Available Tools:\n"
+        for schema in self.schemas[app_id]:
+            tool_schema = ToolSchema.model_validate_json(schema)
+            result += f"        toolset_id='{tool_schema.toolset_id}' name='{tool_schema.name}' description='{tool_schema.description}' arguments='{tool_schema.arguments}'\n"
+        return result
+
+    def get_loaded_apps(self):
+        """
+        {
+            "toolset_id": "app_manager",
+            "name": "get_loaded_apps",
+            "description": "gets details of currently loaded apps and their tools",
             "arguments": []
         }"""
         result = "Available Tools:\n"
         result += "(note: these are the only tools available to you at this time)\n"
-        for app_id in self.pinned_app_ids:
+        for app_id in self.loaded_app_ids:
             for schema in self.schemas[app_id]:
                 tool_schema = ToolSchema.model_validate_json(schema)
                 # arguments is a list of dictionaries
@@ -112,7 +147,7 @@ class AppManager:
         return ToolsetDetails(
             toolset_id="app_manager",
             name="App Manager",
-            description="Manages apps. Tools available are from pinned apps. An app must be pinned to be used."
+            description="Manages apps. Tools available are from loaded apps. An app must be loaded to be used."
         )
     
     def get_tool_schemas(self):
@@ -123,11 +158,22 @@ class AppManager:
             return f"Tool {tool_call.name} not found"
         if tool_call.name == "list_apps":
             return self.list_apps()
-        elif tool_call.name == "pin_app":
-            return self.pin_app(tool_call.arguments["app_id"])
-        elif tool_call.name == "unpin_app":
-            return self.unpin_app(tool_call.arguments["app_id"])
-        elif tool_call.name == "get_pinned_apps":
-            return self.get_pinned_apps()
+        elif tool_call.name == "load_app":
+            #if app_name, use that as the app_id
+            if "app_name" in tool_call.arguments:
+                app_id = tool_call.arguments["app_name"]
+            else:
+                app_id = tool_call.arguments["app_id"]
+            return self.load_app(app_id)
+        elif tool_call.name == "unload_app":
+            return self.unload_app(tool_call.arguments["app_id"])
+        elif tool_call.name == "get_loaded_apps":
+            return self.get_loaded_apps()
+        elif tool_call.name == "get_app_tool_list":
+            if "app_name" in tool_call.arguments:
+                app_id = tool_call.arguments["app_name"]
+            else:
+                app_id = tool_call.arguments["app_id"]
+            return self.get_app_tool_list(app_id)
         else:
             return f"Tool {tool_call.name} not found"

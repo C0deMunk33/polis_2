@@ -19,3 +19,7 @@ if os.path.exists("std_out.txt"):
 
 if os.path.exists("std_err.txt"):
     os.remove("std_err.txt")
+
+# shared_files directory
+if os.path.exists("shared_files"):
+    shutil.rmtree("shared_files")

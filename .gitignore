@@ -1,6 +1,7 @@
 # local DBs
 *.db
 code_environments/
+shared_files/
 std_out.txt
 std_err.txt
 

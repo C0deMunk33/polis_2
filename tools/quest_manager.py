@@ -323,7 +323,7 @@ Please respond with JSON in the following format:
         quest.steps.insert(step_index, QuestStep(title=step_title, description=step_description, completion_criteria=step_completion_criteria))
         return f"Quest {quest_title} step {step_title} inserted at index {step_index}"
     
-    def update_quest_step_description(self, quest_title: str, step_title: str, step_description: str):
+    def update_quest_step_description(self, quest_title: str, step_index: int, step_description: str):
         """
         {
             "toolset_id": "quest_manager",
@@ -334,9 +334,9 @@ Please respond with JSON in the following format:
                 "type": "str",
                 "description": "The title of the quest."
             },{
-                "name": "step_title",
-                "type": "str",
-                "description": "The title of the step."
+                "name": "step_index",
+                "type": "int",
+                "description": "The index of the step."
             },{
                 "name": "step_description",
                 "type": "str",
@@ -347,10 +347,10 @@ Please respond with JSON in the following format:
         quest = self.get_quest_by_title(quest_title)
         if quest is None:
             raise ValueError(f"Quest with name {quest_title} not found")
-        quest.steps[step_title].description = step_description
-        return f"Quest {quest_title} step {step_title} description updated"
+        quest.steps[step_index].description = step_description
+        return f"Quest {quest_title} step {step_index} description updated"
     
-    def update_quest_step_completion_criteria(self, quest_title: str, step_title: str, step_completion_criteria: str):
+    def update_quest_step_completion_criteria(self, quest_title: str, step_index: int, step_completion_criteria: str):
         """
         {
             "toolset_id": "quest_manager",
@@ -361,9 +361,9 @@ Please respond with JSON in the following format:
                 "type": "str",
                 "description": "The title of the quest."
             },{
-                "name": "step_title",
-                "type": "str",
-                "description": "The title of the step."
+                "name": "step_index",
+                "type": "int",
+                "description": "The index of the step."
             },{
                 "name": "step_completion_criteria",
                 "type": "str",
@@ -374,12 +374,12 @@ Please respond with JSON in the following format:
         quest = self.get_quest_by_title(quest_title)
         if quest is None:
             return "Quest not found"
-        if step_title not in quest.steps:
-            return "Step not found"
-        quest.steps[step_title].completion_criteria = step_completion_criteria
-        return f"Quest {quest_title} step {step_title} completion criteria updated"
+        if step_index < 0 or step_index >= len(quest.steps):
+            return "Step index out of bounds"
+        quest.steps[step_index].completion_criteria = step_completion_criteria
+        return f"Quest {quest_title} step {step_index} completion criteria updated"
     
-    def delete_quest_step(self, quest_title: str, step_title: str):
+    def delete_quest_step(self, quest_title: str, step_index: int):
         """
         {
             "toolset_id": "quest_manager",
@@ -390,19 +390,19 @@ Please respond with JSON in the following format:
                 "type": "str",
                 "description": "The title of the quest."
             },{
-                "name": "step_title",
-                "type": "str",
-                "description": "The title of the step."
+                "name": "step_index",
+                "type": "int",
+                "description": "The index of the step."
             }]
         }
         """
         quest = self.get_quest_by_title(quest_title)
         if quest is None:
             return "Quest not found"
-        if step_title not in quest.steps:
-            return "Step not found"
-        quest.steps.pop(step_title)
-        return f"Quest {quest_title} step {step_title} deleted"
+        if step_index < 0 or step_index >= len(quest.steps):
+            return "Step index out of bounds"
+        quest.steps.pop(step_index)
+        return f"Quest {quest_title} step {step_index} deleted"
 
     def delete_quest_note(self, quest_title: str, note_index: int):
         """
@@ -561,11 +561,11 @@ Please respond with JSON in the following format:
         elif tool_call.name == "insert_quest_step":
             return self.insert_quest_step(tool_call.arguments["step_index"], tool_call.arguments["quest_title"], tool_call.arguments["step_title"], tool_call.arguments["step_description"], tool_call.arguments["step_completion_criteria"])
         elif tool_call.name == "update_quest_step_description":
-            return self.update_quest_step_description(tool_call.arguments["quest_title"], tool_call.arguments["step_title"], tool_call.arguments["step_description"])
+            return self.update_quest_step_description(tool_call.arguments["quest_title"], tool_call.arguments["step_index"], tool_call.arguments["step_description"])
         elif tool_call.name == "update_quest_step_completion_criteria":
-            return self.update_quest_step_completion_criteria(tool_call.arguments["quest_title"], tool_call.arguments["step_title"], tool_call.arguments["step_completion_criteria"])
+            return self.update_quest_step_completion_criteria(tool_call.arguments["quest_title"], tool_call.arguments["step_index"], tool_call.arguments["step_completion_criteria"])
         elif tool_call.name == "delete_quest_step":
-            return self.delete_quest_step(tool_call.arguments["quest_title"], tool_call.arguments["step_title"])
+            return self.delete_quest_step(tool_call.arguments["quest_title"], tool_call.arguments["step_index"])
         elif tool_call.name == "delete_quest_note":
             return self.delete_quest_note(tool_call.arguments["quest_title"], tool_call.arguments["note_index"])
         elif tool_call.name == "set_current_quest":

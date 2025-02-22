@@ -26,16 +26,16 @@ class AgentSummarySchema(BaseModel):
     instructions_for_next_pass: str = Field(description="This is the prompt you will receive in the next pass as a user message.")
 
 class Agent:
-    def __init__(self, default_llm_url: str, name: str, private_key: str, persona: str, initial_instructions: str, initial_notes: List[str], buffer_size: int = 20, running: bool = True, standing_tool_calls: List[ToolCall] = []):
+    def __init__(self, default_llm_url: str, name: str, private_key: str, initial_instructions: str, initial_notes: List[str], buffer_size: int = 20, running: bool = True, standing_tool_calls: List[ToolCall] = []):
         self.default_llm_url = default_llm_url
         self.name = name
         self.private_key = private_key
-        self.persona = persona
         self.notes = initial_notes
         self.running = running
         self.buffer_size = buffer_size
         self.message_buffer = []
         self.standing_tool_calls = standing_tool_calls
+        self.latest_post_system_messages = []
         self.message_buffer.append(Message(role="user", content=initial_instructions))
         # agent id is deterministic hash of private key
         self.id = hashlib.sha256(private_key.encode()).hexdigest()
@@ -53,7 +53,7 @@ class Agent:
 Context:
 {standing_tool_results}
 * Current local time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-* Only tools from pinned apps can be called.
+* Only tools from loaded apps can be called.
 * You can only call up to 5 tools in one pass.
 * If a tool call fails, ensure you have the appropriate tools to fix the issue.
 
@@ -109,20 +109,28 @@ You must respond in the following JSON format:
 
     def call_standing_tool_calls(self, tool_callback: Callable):
         # calls standing tools and concatenates results as a single string
-        result = ""
+        result_string = ""
         print("Standing tool calls:")
+        messages = []
+        # create assistant message
+        messages.append(Message(role="assistant", tool_calls=self.standing_tool_calls))
         tool_results = []
         for tool_call in self.standing_tool_calls:
             tool_result = tool_callback(self, tool_call)            
             if tool_result is not None:
                 tool_results.append(tool_result)
-        return "\n".join(tool_results)
+                messages.append(Message(role="tool", content=tool_result))
+        result_string = "\n".join(tool_results) + "\n"
+        return result_string, messages
 
     def get_pass_summary(self, llm_url: str, response: AgentOutputSchema, standing_tool_results: str):
         
         last_pass_summary = ""
         if len(self.pass_summaries) > 0:
-            last_pass_summary = f"Last Pass Summary:\n    {self.pass_summaries[-1].summary}"
+            last_pass_summary = f"Last Pass Summary:"
+
+            for summary in self.pass_summaries[-3:]:
+                last_pass_summary += f"    {summary.summary}\n"
 
         summary_system_prompt = f"""your task is to list the actions taken, list any notes to save for later and summarize what happened in the most recent pass of the agent, then you need to write an instruction for the next pass of the agent.
 
@@ -138,17 +146,16 @@ Most Recent Pass Output:
     Thoughts:
         {response.thoughts + response.followup_thoughts}
 
-* If a tool call failed, ensure the agent has the oppropriate tools to fix the issue.
+* If a tool call failed, ensure the agent has the oppropriate tools to fix the issue. That they have loaded the appropriate apps.
 
 You must respond in the following JSON format:
 {AgentSummarySchema.model_json_schema()}
 """
         
         messages = [Message(role="system", content=summary_system_prompt)]
-        messages.extend(self.latest_pass_tool_call_results)
+        messages.extend(self.latest_post_system_messages)
+        messages.extend(self.message_buffer[-20:])
         messages.append(Message(role="user", content=summary_user_prompt))
-
-
 
 
         try:    
@@ -167,23 +174,27 @@ You must respond in the following JSON format:
             print(f"Stack trace: {traceback.format_exc()}")
             raise e
     
-    def run(self, llm_url: str, model: str, tool_callback: Callable):
+    def run(self, llm_url: str, model: str, post_system_messages: List[Message], tool_callback: Callable):
         if not self.running:
             print(f"Agent {self.name} is not running")
             return
         
         # perform standing tool calls
-        standing_tool_results = self.call_standing_tool_calls(tool_callback)
+        standing_tool_results, standing_tool_messages = self.call_standing_tool_calls(tool_callback)
 
         system_prompt = self.get_system_prompt(standing_tool_results)
 
+        messages = [Message(role="system", content=system_prompt)]
+        self.latest_post_system_messages = post_system_messages
+        messages.extend(post_system_messages)
+        messages.extend(self.message_buffer[-20:])
+        # messages.extend(standing_tool_messages)
         
         if len(self.pass_summaries) > 0:
             prev_summary = self.pass_summaries[-1]
             prev_summary_string = "Summary of the last pass: " + prev_summary.summary + "\n\n" + "Instructions: " + prev_summary.instructions_for_next_pass
-            final_message_buffer = [Message(role="system", content=system_prompt)] + self.message_buffer + [Message(role="user", content=prev_summary_string)]
-        else:
-            final_message_buffer = [Message(role="system", content=system_prompt)] + self.message_buffer
+            messages.append(Message(role="user", content=prev_summary_string))
+        
         """
         print("######################### Message Buffer #########################")
         for message in final_message_buffer:
@@ -194,7 +205,7 @@ You must respond in the following JSON format:
         print("######################### Message Buffer #########################")
         """
 
-        response = call_ollama_chat(llm_url, model, final_message_buffer, AgentOutputSchema.model_json_schema())
+        response = call_ollama_chat(llm_url, model, messages, AgentOutputSchema.model_json_schema())
         try:
             response = AgentOutputSchema.model_validate_json(response)
         except Exception as e:
