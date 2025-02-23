@@ -1157,7 +1157,7 @@ class Directory:
         # check that agent has a user, otherwise create one (they share ids)
         agent_user = next((user for user in self.get_users() if user.user_id == agent.id), None)
         if agent_user is None:
-            agent_user = self.create_user(agent.id, agent.name, agent.persona)
+            agent_user = self.create_user(agent.id, agent.name, "")
 
         if tool_call.name == "get_user_by_id":
             return self.get_user_by_id(tool_call.arguments["user_id"]).model_dump_json()

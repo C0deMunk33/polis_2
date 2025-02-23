@@ -58,12 +58,12 @@ class AppManager:
             result += f"    [loaded] {app.toolset_id} - {app.name} - {app.description}\n"
         for app in unloaded_apps:
             result += f"    [unloaded] {app.toolset_id} - {app.name} - {app.description}\n"
-
+        print()
+        print(result)
         result += "\nApp Manager Tools:\n"
         for tool_schema in self.self_tool_schemas:
             result += f"  (toolset_id: {tool_schema.toolset_id}) {tool_schema.name}({",".join([arg['name'] for arg in tool_schema.arguments])}) - description: {tool_schema.description}\n"
-        print()
-        print(result)
+
         return result
     
     def load_app(self, app_id: str):
@@ -90,7 +90,7 @@ class AppManager:
         {
             "toolset_id": "app_manager",
             "name": "unload_app",
-            "description": "unloads an app.",
+            "description": "unloads an app. do this to free up memory and resources.",
             "arguments": [{
                 "name": "app_id",
                 "type": "string",
@@ -137,9 +137,15 @@ class AppManager:
         result += "(note: these are the only tools available to you at this time)\n"
         for app_id in self.loaded_app_ids:
             for schema in self.schemas[app_id]:
-                tool_schema = ToolSchema.model_validate_json(schema)
-                # arguments is a list of dictionaries
-                result += f"        toolset_id='{tool_schema.toolset_id}' name='{tool_schema.name}' description='{tool_schema.description}' arguments='{tool_schema.arguments}'\n"
+                try:
+                    tool_schema = ToolSchema.model_validate_json(schema)
+                    # arguments is a list of dictionaries
+                    result += f"        toolset_id='{tool_schema.toolset_id}' name='{tool_schema.name}' description='{tool_schema.description}' arguments='{tool_schema.arguments}'\n"
+                except Exception as e:
+                    print(f"Error validating tool schema: {e}")
+                    print(f"Schema: {schema}")
+                    print(type(schema))
+                    raise e
                
         return result
     

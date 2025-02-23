@@ -31,7 +31,7 @@ class FileManager:
             "read_file",
             "delete_file",
             "update_file",
-            "create_directory",
+            "list_files"
         ]
 
         self.tool_schemas = []
@@ -43,37 +43,7 @@ class FileManager:
         self.scan_directory()
 
     def scan_directory(self):
-        for file in os.listdir(self.root_directory):
-            file_path = os.path.join(self.root_directory, file)
-            extension = os.path.splitext(file_path)[1]
-            if os.path.isfile(file_path):
-                if file_path in self.file_metadata:
-                    # existing file, update metadata and continue
-                    current_metadata = self.file_metadata[file_path]
-                    current_metadata.last_seen = datetime.now().isoformat()
-                    self.add_file_metadata(file_path, current_metadata)
-                    continue
-                # found a new file                
-                line_count = 0
-                if is_base64(file_path):
-                    file_type = extension
-                else:
-                    with open(file_path, 'r') as f:
-                        line_count = sum(1 for _ in f)
-                    file_type = extension
-                file_size = os.path.getsize(file_path)  
-                file_created_at = datetime.fromtimestamp(os.path.getctime(file_path)).isoformat()
-                file_updated_at = datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat()
-                self.add_file_metadata(file_path,
-                                       line_count=line_count,
-                                       file_type=file_type,
-                                       file_size=file_size,
-                                       file_created_at=file_created_at,
-                                       file_updated_at=file_updated_at,
-                                       created_by="other",
-                                       updated_by="other",
-                                       first_seen=datetime.now().isoformat(),
-                                       last_seen=datetime.now().isoformat())
+        pass
 
     def add_file_metadata(self, file_path, file_metadata: FileMetadata):
         self.file_metadata[file_path] = file_metadata
@@ -95,21 +65,28 @@ class FileManager:
             }]
         }
         """
+        final_file_path = os.path.join(self.root_directory, file_path)
+
+        # create subfolders if they don't exist
+        os.makedirs(os.path.dirname(final_file_path), exist_ok=True)
+
         if is_base64(file_content):
             # Decode base64 and write as binary
             decoded_content = base64.b64decode(file_content)
-            with open(file_path, 'wb') as f:
+            with open(final_file_path, 'wb') as f:
                 f.write(decoded_content)
         else:
+
+            # create subfolders if they don't exist
             # Write as regular text
-            with open(file_path, 'w') as f:
+            with open(final_file_path, 'w') as f:
                 f.write(file_content)
 
     
         extension = os.path.splitext(file_path)[1]
         # add file metadata
         file_metadata = FileMetadata(
-            file_path=file_path,
+            file_path=final_file_path,
             line_count=file_content.count("\n"),
             file_type=extension,
             file_size=len(file_content),
@@ -120,8 +97,8 @@ class FileManager:
             first_seen=datetime.now().isoformat(),
             last_seen=datetime.now().isoformat(),
         )
-        self.add_file_metadata(file_path, file_metadata)
-        return f"File {file_path} created"
+        self.add_file_metadata(final_file_path, file_metadata)
+        return f"File {final_file_path} created"
     
     def read_file(self, file_path, start_line=None, end_line=None, show_line_numbers=True):
         """
@@ -215,44 +192,6 @@ class FileManager:
             f.write(new_content)
         return f"File {file_path} updated"
     
-    def create_directory(self, directory_path):
-        """
-        {
-            "toolset_id": "file_manager",
-            "name": "create_directory",
-            "description": "Create a directory",
-            "arguments": [{
-                "name": "directory_path",
-                "type": "string",
-                "description": "The path to the directory to create"
-            }]
-        }
-        """
-        directory_path = os.path.join(self.root_directory, directory_path)
-        os.makedirs(directory_path, exist_ok=True)
-        return f"Directory {directory_path} created"
-
-    def delete_directory(self, directory_name, directory_path):
-        """
-        {
-            "toolset_id": "file_manager",
-            "name": "delete_directory",
-            "description": "Delete a directory",
-            "arguments": [{
-                "name": "directory_name",
-                "type": "string",
-                "description": "The name of the directory to delete"
-            },{
-                "name": "directory_path",
-                "type": "string",
-                "description": "The path to the directory to delete"
-            }]
-        }
-        """
-        directory_path = os.path.join(self.root_directory, directory_path)
-        os.rmdir(directory_path)
-        return f"Directory {directory_path} deleted"
-
     def list_files(self):
         """
         {
@@ -287,7 +226,14 @@ class FileManager:
             return f"Toolset {tool_call.toolset_id} not found"
         
         if tool_call.name == "create_file":
-            return self.create_file(tool_call.arguments["file_path"], tool_call.arguments["file_content"])
+            if "file_path" not in tool_call.arguments or "file_content" not in tool_call.arguments:
+                return "File path and content are required"
+            if tool_call.arguments["file_path"] == "":
+                return "File path cannot be empty"
+            if tool_call.arguments["file_content"] == "":
+                return "File content cannot be empty"
+            
+            return self.create_file(agent.id, tool_call.arguments["file_path"], tool_call.arguments["file_content"])
         elif tool_call.name == "read_file":
             start_line = None
             end_line = None
@@ -303,10 +249,6 @@ class FileManager:
             return self.delete_file(tool_call.arguments["file_path"])
         elif tool_call.name == "update_file":
             return self.update_file(tool_call.arguments["file_path"], tool_call.arguments["unified_diff"])
-        elif tool_call.name == "create_directory":
-            return self.create_directory(tool_call.arguments["directory_path"])
-        elif tool_call.name == "delete_directory":
-            return self.delete_directory(tool_call.arguments["directory_name"], tool_call.arguments["directory_path"])
         elif tool_call.name == "list_files":
             return self.list_files()
         else:

@@ -104,7 +104,7 @@ class QuestManager:
                         result += f"    - {quest.title}\n"
         return result
 
-    def create_quest(self, llm_url: str, overall_goal: str, context: str, details: str):
+    def create_quest(self, llm_url: str, agent: Agent, overall_goal: str, context: str, details: str):
         """
         {
             "toolset_id": "quest_manager",
@@ -119,12 +119,12 @@ class QuestManager:
                 {
                     "name": "details",
                     "type": "str",
-                    "description": "The details of the quest."  
+                    "description": "The details of the quest. (optional)"  
                 },
                 {
                     "name": "context",
                     "type": "str",
-                    "description": "The context of the quest."
+                    "description": "The context of the quest. (optional)"
                 }]
         }
         """
@@ -145,7 +145,15 @@ Please respond with JSON in the following format:
 {Quest.model_json_schema()}
         """
 
-        messages = [Message(role="system", content=quest_system_prompt), Message(role="user", content=user_prompt)]
+        messages = [Message(role="system", content=quest_system_prompt)]
+        messages.extend(agent.latest_post_system_messages)
+        # add last 4 summaries as user messages
+        if len(agent.pass_summaries) > 0:
+            summary_string = "Summary of recent passes:\n"
+            for summary in agent.pass_summaries[-4:]:
+                summary_string += f"    - {summary.summary}\n"
+            messages.append(Message(role="user", content=summary_string))
+        messages.append(Message(role="user", content=user_prompt))
 
         response = call_ollama_chat(llm_url, "a_model", messages, json_schema=QuestGenerationOutput.model_json_schema())
         quest_generation_output = QuestGenerationOutput.model_validate_json(response)
@@ -164,7 +172,7 @@ Please respond with JSON in the following format:
             notes=[]
         )
         self.quests[quest.title] = quest
-        return quest
+        return self.get_quest(quest.title)
 
     def get_quest(self, title: str):
         """
@@ -447,7 +455,7 @@ Please respond with JSON in the following format:
         self.current_quest_name = name
         return f"Current quest set to {name}"
 
-    def set_current_quest_step(self, step_title: str):
+    def set_current_quest_step(self, quest_title: str, step_index: int):
         """
         {
             "toolset_id": "quest_manager",
@@ -458,21 +466,21 @@ Please respond with JSON in the following format:
                 "type": "str",
                 "description": "The title of the quest."
             },{
-                "name": "step_title",
-                "type": "str",
-                "description": "The title of the step."
+                "name": "step_index",
+                "type": "int",
+                "description": "The index of the step."
             }]
         }
         """
         quest = self.get_quest_by_title(self.current_quest_name)
         if quest is None:
             return "Quest not found"
-        if step_title not in quest.steps:
-            return "Step not found"
+        if step_index < 0 or step_index >= len(quest.steps):
+            return "Step index out of bounds"
         if quest.status != "active":
             return "Quest is not active"
-        quest.current_step = step_title
-        return f"Current quest {self.current_quest_name} step set to {step_title}"
+        quest.current_step = quest.steps[step_index].title
+        return f"Current quest {self.current_quest_name} step set to {quest.steps[step_index].title}"
 
     def submit_quest_for_review(self, quest_title: str, submission_notes: str):
         """
@@ -546,7 +554,15 @@ Please respond with JSON in the following format:
         if tool_call.name == "get_quest_list":
             return self.get_quest_list()
         elif tool_call.name == "create_quest":
-            return self.create_quest(agent.default_llm_url, tool_call.arguments["overall_goal"], tool_call.arguments["context"], tool_call.arguments["details"]).model_dump_json()
+            context = f"{agent.standing_tool_calls}"
+            if "context" in tool_call.arguments:
+                context = tool_call.arguments["context"]
+
+            details = "[no details provided]"
+            if "details" in tool_call.arguments:
+                details = tool_call.arguments["details"]
+
+            return self.create_quest(agent.default_llm_url, agent, tool_call.arguments["overall_goal"], context, details)
 
         elif tool_call.name == "get_quest":
             return self.get_quest(tool_call.arguments["title"])
@@ -571,7 +587,7 @@ Please respond with JSON in the following format:
         elif tool_call.name == "set_current_quest":
             return self.set_current_quest(tool_call.arguments["name"])
         elif tool_call.name == "set_current_quest_step":
-            return self.set_current_quest_step(tool_call.arguments["quest_title"], tool_call.arguments["step_title"])
+            return self.set_current_quest_step(tool_call.arguments["quest_title"], tool_call.arguments["step_index"])
         elif tool_call.name == "submit_quest_for_review":
             return self.submit_quest_for_review(tool_call.arguments["quest_title"], tool_call.arguments["submission_notes"])
         elif tool_call.name == "abandon_quest":

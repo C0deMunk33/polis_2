@@ -20,6 +20,7 @@ dependencies = [
     "scikit-learn (>=1.6.1,<2.0.0)",
     "statsmodels (>=0.14.4,<0.15.0)",
     "wikipedia (>=1.4.0,<2.0.0)",
+    "chromadb (>=0.6.3,<0.7.0)",
 ]
 
 

@@ -21,30 +21,34 @@ class AgentOrchestrator:
         self.model = model
         self.running = True
 
+        self.tool_schemas = []
+
     def add_agent(self, agent: Agent):
         self.agents.append(agent)
 
-    def run(self, tool_callback: Callable, app_managers: List[AppManager]):
+    def run(self, tool_callback: Callable, post_system_tool_calls: List[ToolCall]):
         while self.running:
-            for agent in self.agents:
+            for agent_index, agent in enumerate(self.agents):
                 print("~"*100)
+                print("###AGENT RUN STARTING###")
+                print(f"###{agent_index}###")
                 print(f"Running agent: {agent.name} \n")
 
                 post_system_messages = []
-                # make assistant messages for loaded apps
-                agent_app_manager = app_managers[agent.id]
-                get_loaded_apps_tool_call = ToolCall(
-                    toolset_id="app_manager",
-                    name="get_loaded_apps",
-                    arguments={}
-                )
-                get_loaded_apps_tool_call_result = agent_app_manager.agent_tool_callback(agent, get_loaded_apps_tool_call)
-                
-                post_system_messages.append(Message(role="assistant", tool_calls=[get_loaded_apps_tool_call]))
-                post_system_messages.append(Message(role="tool", content=get_loaded_apps_tool_call_result))
+                print(f"Post system tool calls:")
+                for tool_call in post_system_tool_calls:
+                    tool_call_result = tool_callback(agent, tool_call)
+                    post_system_messages.append(Message(role="tool", content=tool_call_result))
 
                 agent.run(self.server_url, self.model, post_system_messages, tool_callback)
+                print("###AGENT RUN COMPLETE###")
+                print(f"###{agent_index}###")
 
+            
+            # if all agents are complete, stop
+            if all(not agent.running for agent in self.agents):
+                self.running = False
+                break
     def stop(self):
         self.running = False
 
@@ -77,32 +81,6 @@ class AgentOrchestrator:
             "running": self.get_running_agent_count(),
             "stopped": self.get_stopped_agent_count()
         }
-    
-    ############### Agent Interface ###############
-    def get_toolset_details(self):
-        return ToolsetDetails(
-            toolset_id="agent_tool",
-            name="Agent Orchestrator",
-            description="Orchestrates agents"
-        )
-
-    def get_tool_schemas(self):
-        tool_schemas = [{
-            "toolset_id": "agent_tool",
-            "name": "set_name",
-            "description": "Set your name",
-            "arguments": [{
-                "name": "name",
-                "type": "string",
-                "description": "your new name"
-            }]
-        }]
-        return tool_schemas
-    
-    def agent_tool_callback(self, agent: Agent, tool_call: ToolCall):
-        if tool_call.name == "set_name":
-            agent.name = tool_call.arguments["name"]
-            return f"Name set to {tool_call.arguments['name']}"
 
 def main():
     from tools.forum import Directory
@@ -113,6 +91,7 @@ def main():
     from tools.file_manager import FileManager
     from tools.persona import PersonaManager
     from tools.notes import NotesManager
+    from tools.user_directory import UserDirectory
     # delete out files if they exist
     if os.path.exists("std_out.txt"):
         os.remove("std_out.txt")
@@ -144,14 +123,13 @@ def main():
     notes_managers = {}
     orchestrator = AgentOrchestrator(server_url="http://localhost:5000", model="llama3.1:8b")
     wiki_search = WikiSearch()
+    user_directory = UserDirectory()
     def tool_callback(agent: Agent, tool_call: ToolCall):
         tool_results = None
         print(f"  - {tool_call.toolset_id} - Tool call: {tool_call}")
         try:
             if tool_call.toolset_id == "forum_toolset":
                 tool_results = forum_directory.agent_tool_callback(agent, tool_call)
-            elif tool_call.toolset_id == "agent_tool":
-                tool_results = orchestrator.agent_tool_callback(agent, tool_call)
             elif tool_call.toolset_id == "code_runner":
                 tool_results = shared_code_runner.agent_tool_callback(agent, tool_call)
             elif tool_call.toolset_id == "wiki_toolset":
@@ -166,6 +144,8 @@ def main():
                 tool_results = persona_managers[agent.id].agent_tool_callback(agent, tool_call)
             elif tool_call.toolset_id == "notes_manager":
                 tool_results = notes_managers[agent.id].agent_tool_callback(agent, tool_call)
+            elif tool_call.toolset_id == "messages":
+                tool_results = user_directory.agent_tool_callback(agent, tool_call)
             else:
                 print(f"APP NOT FOUND - toolset_id: {tool_call.toolset_id} not found")
         except Exception as e:
@@ -231,18 +211,13 @@ def main():
                 arguments={}
             ),
             ToolCall(
-                toolset_id="notes_manager",
-                name="get_notes",
-                arguments={}
-            ),
-            ToolCall(
                 toolset_id="quest_manager",
                 name="get_quest_list",
                 arguments={}
             ),
             ToolCall(
-                toolset_id="quest_manager",
-                name="get_current_quest",
+                toolset_id="messages",
+                name="get_new_message_count",
                 arguments={}
             ),
             ToolCall(
@@ -271,24 +246,40 @@ def main():
         quest_manager = QuestManager()
         quest_managers[agent.id] = quest_manager
 
+        user_directory.add_user(agent)
 
         app_manager.add_app(persona_manager.get_toolset_details(), persona_manager.get_tool_schemas())
-        app_manager.add_app(orchestrator.get_toolset_details(), orchestrator.get_tool_schemas())
         app_manager.add_app(shared_code_runner.get_toolset_details(), shared_code_runner.get_tool_schemas())
         app_manager.add_app(quest_manager.get_toolset_details(), quest_manager.get_tool_schemas())
-        app_manager.load_app(quest_manager.get_toolset_details().toolset_id)
+        #app_manager.load_app(quest_manager.get_toolset_details().toolset_id)
         app_manager.add_app(wiki_search.get_toolset_details(), wiki_search.get_tool_schemas())
         app_manager.add_app(forum_directory.get_toolset_details(), forum_directory.get_tool_schemas())
         app_manager.add_app(file_manager.get_toolset_details(), file_manager.get_tool_schemas())
         app_manager.add_app(notes_manager.get_toolset_details(), notes_manager.get_tool_schemas())
         app_manager.load_app(notes_manager.get_toolset_details().toolset_id)
+        app_manager.add_app(user_directory.get_toolset_details(), user_directory.get_tool_schemas())
         app_managers[agent.id] = app_manager
         orchestrator.add_agent(agent)
 
+    post_system_tool_calls = [
+        ToolCall(
+            toolset_id="app_manager",
+            name="get_loaded_apps",
+            arguments={}
+        ),
+        ToolCall(
+            toolset_id="quest_manager",
+            name="get_current_quest",
+            arguments={}
+        ),
+        ToolCall(
+            toolset_id="notes_manager",
+            name="get_notes",
+            arguments={}
+        )
+    ]
 
-
-
-    orchestrator.run(tool_callback=tool_callback, app_managers=app_managers)
+    orchestrator.run(tool_callback=tool_callback, post_system_tool_calls=post_system_tool_calls)
 
 if __name__ == "__main__":
     main()

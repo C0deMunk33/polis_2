@@ -61,7 +61,11 @@ class SafeCodeExecutor:
             'seaborn',
             'scipy',
             'sklearn',
-            'statsmodels'
+            'statsmodels',
+            'random',
+            'time',
+            'datetime',
+            'hashlib'
         ]
         
         # Pre-import allowed modules to verify they're available

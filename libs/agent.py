@@ -25,6 +25,14 @@ class AgentSummarySchema(BaseModel):
     summary: str = Field(description="string of summary. This is a summary of the actions taken, including what was thought and what was done.")
     instructions_for_next_pass: str = Field(description="This is the prompt you will receive in the next pass as a user message.")
 
+class AgentRunOutput(BaseModel): # TODO: generate and save this for each pass
+    model: str = Field(description="The model used for the agent run.")
+    run_messages: List[Message] = Field(description="The messages from the agent run.")
+    agent_output: AgentOutputSchema = Field(description="The output of the agent run.")
+    summary_messages: List[Message] = Field(description="The messages from the summary pass.")
+    summary_output: AgentSummarySchema = Field(description="The output of the summary pass.")
+    tool_results: List[str] = Field(description="The results from the tool calls.")
+
 class Agent:
     def __init__(self, default_llm_url: str, name: str, private_key: str, initial_instructions: str, initial_notes: List[str], buffer_size: int = 20, running: bool = True, standing_tool_calls: List[ToolCall] = []):
         self.default_llm_url = default_llm_url
@@ -216,17 +224,20 @@ You must respond in the following JSON format:
             raise e
         print()
         print(f"Thoughts:")
-        print(response.thoughts)
-        print(f"Followup thoughts:")
-        print(response.followup_thoughts)
+        print("    - " + response.thoughts)
+        print("    - " + response.followup_thoughts)
 
         if not response.should_continue:    
             self.running = False
 
         self.call_tools(response.tool_calls, tool_callback)
         
+        print("\n\nFull System Prompt:")
+        print(system_prompt)
         summary = self.get_pass_summary(llm_url, response, standing_tool_results)
-        
+        print("\n\nFull Summary:")
+        print(summary.model_dump_json(indent=4))
+
         self.pass_summaries.append(summary)
         self.notes.extend(summary.notes)
 
