@@ -94,7 +94,7 @@ class QuestManager:
         # get quests where status is not "abandoned" or "submitted for review"
         result = "Quest List:\n"
         if len(self.quests) == 0:
-            result += "No quests found"
+            result += "    [No quests found]"
         else:
             for quest in self.quests.values():
                 if quest.status not in ["abandoned", "submitted for review"]:
@@ -253,6 +253,9 @@ Please respond with JSON in the following format:
             "arguments": []
         }
         """
+        quest = self.get_quest_by_title(self.current_quest_name)
+        if quest is None:
+            return "Quest:\n    [Current Quest not set]"
         return self.get_quest(self.current_quest_name)
     
     def get_current_quest_step(self):
@@ -266,11 +269,11 @@ Please respond with JSON in the following format:
         """
         quest = self.get_quest_by_title(self.current_quest_name)
         if quest is None:
-            return "Quest not found"
+            return "Quest:\n    [Current Quest not set]"
         for index, step in enumerate(quest.steps):
             if step.title == quest.current_step:
                 return self.get_quest_step(self.current_quest_name, index)
-        return "Current step not found"
+        return "Quest:\n    [Current step not found]"
     
     def add_quest_note(self, quest_title: str, note: str):
         """

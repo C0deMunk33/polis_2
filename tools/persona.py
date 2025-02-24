@@ -126,7 +126,7 @@ Respond in the following JSON format:
         }
         """
         if self.current_persona_index is None:
-            return "No current persona"
+            return f"Persona:\n    [No current persona]"
         return self.get_persona(self.current_persona_index)
 
     def set_current_persona(self, index: int):

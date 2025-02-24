@@ -67,7 +67,7 @@ class Agent:
         
     def get_system_prompt(self, standing_tool_results: str):
         return f"""You are an advanced synthetic being. You are in an internal monologue loop, you can only interact with the world through the available apps.
-Context:
+
 {standing_tool_results}
 * Current local time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 * Only tools from loaded apps can be called.
@@ -137,7 +137,7 @@ You must respond in the following JSON format:
             if tool_result is not None:
                 tool_results.append(tool_result)
                 messages.append(Message(role="tool", content=tool_result))
-        result_string = "\n".join(tool_results) + "\n"
+        result_string = "\n".join([str(tool_result) + "\n" for tool_result in tool_results]) + "\n"
         return result_string, messages
 
     def get_pass_summary(self, llm_url: str, response: AgentOutputSchema, standing_tool_results: str):

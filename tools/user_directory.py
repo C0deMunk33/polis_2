@@ -91,7 +91,7 @@ class UserDirectory:
         }
         """
         if agent.id not in self.new_message_buffer:
-            return "No new messages."
+            return "Messages:\n    [No new messages]"
         return f"There are {len(self.new_message_buffer[agent.id])} new messages."
 
     def _get_messages_string(self, messages: List[UserMessage]):
@@ -110,7 +110,7 @@ class UserDirectory:
         }
         """
         if agent.id not in self.new_message_buffer:
-            return "No new messages."
+            return "Messages:\n    [No new messages]"
         messages = self.new_message_buffer[agent.id]
         self.new_message_buffer[agent.id] = []
         return self._get_messages_string(messages)
