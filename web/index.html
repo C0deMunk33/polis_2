@@ -1,523 +1,340 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Cyberpunk Forum</title>
-  <link rel="stylesheet" href="/static/styles.css">
-</head>
-<body>
-  <div class="parallax-wrapper">
-    <div class="parallax-layer">
-      <div class="parallax-grid"></div>
-      <div class="hex-pattern"></div>
-    </div>
-    
-    <div class="container">
-      <button class="neon-button refresh-button" onclick="refreshCurrent()">
-        <span>Refresh</span>
-      </button>
-      <h1>Cyberpunk Forum</h1>
-      
-      <div class="forums-list" id="forums-list">
-        <h2>Existing Forums</h2>
-        <button class="neon-button" onclick="fetchForums()">
-          <span>Refresh Forums</span>
-        </button>
-        <div id="forum-container"></div>
-      
-        <div class="form-section">
-          <h2>Create New Forum</h2>
-          <label for="new-forum-title">Forum Title:</label>
-          <input type="text" id="new-forum-title" />
-          
-          <label for="new-forum-desc">Forum Description:</label>
-          <textarea id="new-forum-desc" rows="3"></textarea>
-          
-          <br />
-          <button class="neon-button" onclick="createNewForum()">
-            <span>Create Forum</span>
-          </button>
-        </div>
-      </div>
-
-      <div class="form-section" id="forum-view" style="display: none;">
-        <button class="neon-button" onclick="backToForums()">
-          <span>Back to Forums</span>
-        </button>
-        <h2 id="forum-title"></h2>
-        <p id="forum-description"></p>
-        
-        <div id="posts-container">
-          <button class="neon-button" onclick="refreshPosts()">
-            <span>Refresh Posts</span>
-          </button>
-          <h3>Posts</h3>
-        </div>
-        
-        <div class="form-section">
-          <h3>Add Post</h3>
-          <label for="new-post-title">Title (optional):</label>
-          <input type="text" id="new-post-title" />
-          
-          <label for="new-post-content">Content:</label>
-          <textarea id="new-post-content" rows="3"></textarea>
-          
-          <br />
-          <button class="neon-button" onclick="createNewPost()">
-            <span>Post</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    let currentForumId = null;
-
-    // Push URL changes without reloading
-    function updateURL(path) {
-      history.pushState({}, '', path);
-    }
-
-    // Handle browser back/forward
-    window.onpopstate = function(event) {
-      handleURL(window.location.pathname);
-    };
-
-    // Simple client-side router
-    function handleURL(path) {
-      const parts = path.split('/').filter(p => p);
-      if (parts.length === 0) {
-        // Root path -> forums list
-        backToForums();
-        fetchForums();
-      } else if (parts[0] === 'forum' && parts[1]) {
-        if (parts[2] === 'post' && parts[3]) {
-          // Single post view: /forum/{forumId}/post/{postId}
-          viewForum(parts[1], false).then(() => {
-            viewSinglePost(parts[3]);
-          });
-        } else {
-          // Forum view: /forum/{forumId}
-          viewForum(parts[1], false);
-        }
-      }
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-      handleURL(window.location.pathname);
-    });
-
-    // Fetch forums
-    function fetchForums() {
-      fetch('/api/forums')
-        .then(response => response.json())
-        .then(data => {
-          const container = document.getElementById('forum-container');
-          container.innerHTML = '';
-          
-          if (!data.length) {
-            container.innerHTML = '<p>No forums found.</p>';
-            return;
-          }
-
-          data.forEach(forum => {
-            const forumDiv = document.createElement('div');
-            forumDiv.className = 'forum-item';
-            forumDiv.onclick = () => viewForum(forum.forum_id);
-            forumDiv.innerHTML = `
-              <h3>${forum.title}</h3>
-              <p><strong>Description:</strong> ${forum.description}</p>
-            `;
-            container.appendChild(forumDiv);
-          });
-        })
-        .catch(err => {
-          console.error('Error fetching forums:', err);
-        });
-    }
-
-    // View a single forum
-    function viewForum(forumId, updateHistory = true) {
-      currentForumId = forumId;
-      if (updateHistory) {
-        updateURL(`/forum/${forumId}`);
-      }
-      
-      document.getElementById('forums-list').style.display = 'none';
-      document.getElementById('forum-view').style.display = 'block';
-
-      return fetch(`/api/forums/${forumId}`)
-        .then(response => response.json())
-        .then(data => {
-          document.getElementById('forum-title').textContent = data.title;
-          document.getElementById('forum-description').textContent = data.description;
-          
-          const postsContainer = document.getElementById('posts-container');
-          postsContainer.innerHTML = `
-            <button class="neon-button" onclick="refreshPosts()">
-              <span>Refresh Posts</span>
-            </button>
-            <h3>Posts</h3>
-          `;
-
-          if (!data.posts || data.posts.length === 0) {
-            postsContainer.innerHTML += '<p>No posts yet.</p>';
-            return;
-          }
-
-          // Group posts by parent_id
-          const threads = new Map(); // parent_id -> array of child posts
-          const topLevelPosts = [];
-          data.posts.forEach(post => {
-            if (post.parent_id) {
-              if (!threads.has(post.parent_id)) {
-                threads.set(post.parent_id, []);
-              }
-              threads.get(post.parent_id).push(post);
-            } else {
-              topLevelPosts.push(post);
+<html>
+    <head>
+        <title>Agent Viewer</title>
+        <style>
+            body {
+                font-family: 'Courier New', monospace;
+                background-color: #0c0c0c;
+                color: #33ff33;
+                margin: 0;
+                padding: 20px;
             }
-          });
-
-          // Sort top-level posts by date (descending)
-          topLevelPosts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-          /**
-           * Render a post (recursively creates its children) but 
-           * hides or shows parts of the tree depending on 'depth' and 'isVisible'.
-           *
-           * @param {object} post - The post data
-           * @param {number} depth - Depth in the tree (0 for top-level)
-           * @param {boolean} isVisible - Whether this post should be visible in forum view
-           * @return {HTMLDivElement} The newly created post DIV
-           */
-          function renderPost(post, depth = 0, isVisible = true) {
-            const postDiv = document.createElement('div');
-            postDiv.className = 'forum-item';
-            postDiv.style.marginLeft = `${depth * 20}px`;
-
-            // If 'isVisible' is false, hide the post in the forum view
-            if (!isVisible) {
-              postDiv.style.display = 'none';
-              postDiv.classList.add('hidden-reply'); 
+            .terminal {
+                background-color: #0c0c0c;
+                border: 1px solid #33ff33;
+                border-radius: 5px;
+                padding: 20px;
+                margin-bottom: 20px;
+                box-shadow: 0 0 10px rgba(51, 255, 51, 0.5);
+                overflow: auto;
+                max-height: 80vh;
             }
+            .header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 20px;
+            }
+            h1, h2, h3 {
+                color: #33ff33;
+            }
+            button {
+                background-color: #0c0c0c;
+                color: #33ff33;
+                border: 1px solid #33ff33;
+                border-radius: 3px;
+                padding: 8px 16px;
+                cursor: pointer;
+                font-family: 'Courier New', monospace;
+                margin-right: 10px;
+            }
+            button:hover {
+                background-color: #33ff33;
+                color: #0c0c0c;
+            }
+            .agent-item {
+                padding: 10px;
+                margin: 5px 0;
+                border: 1px solid #33ff33;
+                border-radius: 3px;
+                cursor: pointer;
+            }
+            .agent-item:hover {
+                background-color: rgba(51, 255, 51, 0.2);
+            }
+            .run-result {
+                margin-bottom: 20px;
+                border-bottom: 1px dashed #33ff33;
+                padding-bottom: 10px;
+            }
+            .tool-call {
+                margin-left: 20px;
+                border-left: 2px solid #33ff33;
+                padding-left: 10px;
+                margin-top: 5px;
+            }
+            .tool-result {
+                margin-left: 40px;
+                color: #ffcc00;
+                margin-top: 5px;
+            }
+            .thoughts {
+                color: #ff66ff;
+                margin-top: 10px;
+            }
+            .summary {
+                color: #66ccff;
+                margin-top: 10px;
+            }
+            .loading {
+                animation: blink 1s infinite;
+            }
+            @keyframes blink {
+                0% { opacity: 1; }
+                50% { opacity: 0; }
+                100% { opacity: 1; }
+            }
+            .breadcrumb {
+                margin-bottom: 20px;
+            }
+            .breadcrumb a {
+                color: #33ff33;
+                text-decoration: none;
+            }
+            .breadcrumb a:hover {
+                text-decoration: underline;
+            }
+            pre {
+                white-space: pre-wrap;
+                word-wrap: break-word;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Agent Viewer</h1>
+            <div>
+                <button id="refresh-btn">Refresh</button>
+                <button id="home-btn">Home</button>
+            </div>
+        </div>
+        
+        <div class="breadcrumb" id="breadcrumb">
+            <a href="#/">Home</a>
+        </div>
+        
+        <div class="terminal" id="terminal-output">
+            <div id="loading" class="loading">Loading...</div>
+            <div id="content"></div>
+        </div>
 
-            postDiv.innerHTML = `
-              <div onclick="viewSinglePost('${post.post_id}')">
-                <h4>${post.title || 'Untitled'}</h4>
-                <p>${post.content}</p>
-                <small>By: ${post.author_id}</small>
-              </div>
-              <button class="neon-button" onclick="event.stopPropagation(); showReplyForm('${post.post_id}')">Reply</button>
-              <div id="reply-form-${post.post_id}" style="display: none;" class="form-section">
-                <label for="reply-content-${post.post_id}">Your Reply:</label>
-                <textarea id="reply-content-${post.post_id}" rows="3"></textarea>
-                <br />
-                <button class="neon-button" onclick="event.stopPropagation(); submitReply('${post.post_id}')">Submit Reply</button>
-              </div>
-            `;
+        <script>
+            // Application state
+            const state = {
+                currentView: 'agents',
+                currentAgentId: null,
+                currentAgentName: null,
+                agents: [],
+                runResults: []
+            };
 
-            postsContainer.appendChild(postDiv);
+            // DOM elements
+            const terminalOutput = document.getElementById('terminal-output');
+            const contentDiv = document.getElementById('content');
+            const loadingDiv = document.getElementById('loading');
+            const refreshBtn = document.getElementById('refresh-btn');
+            const homeBtn = document.getElementById('home-btn');
+            const breadcrumbDiv = document.getElementById('breadcrumb');
 
-            // If this post has children, decide how to display them
-            if (threads.has(post.post_id)) {
-              const directReplies = threads.get(post.post_id);
-              // Sort child replies by date desc
-              directReplies.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-              // For top-level posts (depth=0), show at most 2 direct replies
-              if (depth === 0) {
-                directReplies.forEach((reply, idx) => {
-                  // Show the first 2 direct children; hide the rest
-                  const childVisible = (idx < 2);
-                  renderPost(reply, depth + 1, childVisible);
-                });
-
-                // If there are more than 2, add a snippet
-                if (directReplies.length > 2) {
-                  const snippetDiv = document.createElement('div');
-                  snippetDiv.className = 'forum-item';
-                  snippetDiv.dataset.snippet = 'true'; // Mark this as a snippet
-                  snippetDiv.style.marginLeft = `${(depth + 1) * 20}px`;
-                  snippetDiv.innerHTML = `
-                    <p>
-                      <small>... and ${directReplies.length - 2} more replies. 
-                      Click the post to view all.</small>
-                    </p>
-                  `;
-                  postsContainer.appendChild(snippetDiv);
+            // Event listeners
+            refreshBtn.addEventListener('click', () => {
+                if (state.currentView === 'agents') {
+                    fetchAgents();
+                } else if (state.currentView === 'agent-details') {
+                    fetchAgentRunResults(state.currentAgentId);
                 }
-              }
-              // For replies at depth >= 1, hide grandchildren from the main forum view
-              else {
-                directReplies.forEach(reply => {
-                  // We'll render them, but hidden
-                  renderPost(reply, depth + 1, false); 
+            });
+
+            homeBtn.addEventListener('click', () => {
+                navigateTo('/');
+            });
+
+            // Router
+            function handleRoute() {
+                const hash = window.location.hash || '#/';
+                
+                if (hash === '#/' || hash === '#') {
+                    state.currentView = 'agents';
+                    state.currentAgentId = null;
+                    state.currentAgentName = null;
+                    updateBreadcrumb();
+                    fetchAgents();
+                } else if (hash.startsWith('#/agent/')) {
+                    const agentId = hash.replace('#/agent/', '');
+                    state.currentView = 'agent-details';
+                    state.currentAgentId = agentId;
+                    updateBreadcrumb();
+                    fetchAgentRunResults(agentId);
+                }
+            }
+
+            // Update breadcrumb based on current state
+            function updateBreadcrumb() {
+                if (state.currentView === 'agents') {
+                    breadcrumbDiv.innerHTML = '<a href="#/">Home</a>';
+                } else if (state.currentView === 'agent-details') {
+                    const agentName = state.agents.find(a => a.agent_id === state.currentAgentId)?.agent_name || state.currentAgentId;
+                    state.currentAgentName = agentName;
+                    breadcrumbDiv.innerHTML = '<a href="#/">Home</a> > <a href="#/agent/' + state.currentAgentId + '">' + agentName + '</a>';
+                }
+            }
+
+            // Navigation helper
+            function navigateTo(path) {
+                window.location.hash = path;
+            }
+
+            // API calls
+            async function fetchAgents() {
+                showLoading();
+                try {
+                    const response = await fetch('/api/list_agents');
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch agents');
+                    }
+                    state.agents = await response.json();
+                    renderAgentList();
+                } catch (error) {
+                    renderError(error.message);
+                } finally {
+                    hideLoading();
+                }
+            }
+
+            async function fetchAgentRunResults(agentId) {
+                showLoading();
+                try {
+                    const response = await fetch(`/api/get_agent_run_results?agent_id=${agentId}`);
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch agent run results');
+                    }
+                    const results = await response.json();
+                    state.runResults = results.map(result => JSON.parse(result));
+                    renderAgentRunResults();
+                } catch (error) {
+                    renderError(error.message);
+                } finally {
+                    hideLoading();
+                }
+            }
+
+            // Rendering functions
+            function renderAgentList() {
+                contentDiv.innerHTML = '<h2>Available Agents</h2>';
+                
+                if (state.agents.length === 0) {
+                    contentDiv.innerHTML += '<p>No agents found.</p>';
+                    return;
+                }
+
+                state.agents.forEach(agent => {
+                    const agentDiv = document.createElement('div');
+                    agentDiv.className = 'agent-item';
+                    agentDiv.innerHTML = `
+                        <strong>${agent.agent_name}</strong> (ID: ${agent.agent_id.substring(0, 8)}...)
+                        <br>Pass Number: ${agent.pass_number}
+                        <br>Last Run: ${agent.last_run_date}
+                    `;
+                    agentDiv.addEventListener('click', () => {
+                        navigateTo(`/agent/${agent.agent_id}`);
+                    });
+                    contentDiv.appendChild(agentDiv);
                 });
-              }
             }
 
-            return postDiv;
-          }
+            function renderAgentRunResults() {
+                const agentName = state.currentAgentName || state.currentAgentId;
+                contentDiv.innerHTML = `<h2>Run Results for Agent: ${agentName}</h2>`;
+                
+                if (state.runResults.length === 0) {
+                    contentDiv.innerHTML += '<p>No run results found for this agent.</p>';
+                    return;
+                }
 
-          // Render all top-level posts
-          topLevelPosts.forEach(post => renderPost(post, 0, true));
-        })
-        .catch(err => {
-          console.error('Error fetching forum:', err);
-        });
-    }
+                // Sort by pass number in descending order
+                state.runResults.sort((a, b) => b.pass_number - a.pass_number);
 
-    function backToForums() {
-      currentForumId = null;
-      updateURL('/');
-      document.getElementById('forums-list').style.display = 'block';
-      document.getElementById('forum-view').style.display = 'none';
-      fetchForums();
-    }
+                state.runResults.forEach(result => {
+                    const resultDiv = document.createElement('div');
+                    resultDiv.className = 'run-result';
+                    
+                    resultDiv.innerHTML = `
+                        <h3>Pass #${result.pass_number} (${result.model})</h3>
+                        <div class="thoughts">
+                            <strong>Thoughts:</strong>
+                            <pre>${result.agent_output.thoughts}</pre>
+                            <pre>${result.agent_output.followup_thoughts}</pre>
+                        </div>
+                    `;
 
-    function createNewPost() {
-      if (!currentForumId) return;
+                    // Tool calls
+                    if (result.agent_output.tool_calls && result.agent_output.tool_calls.length > 0) {
+                        const toolCallsDiv = document.createElement('div');
+                        toolCallsDiv.innerHTML = '<strong>Tool Calls:</strong>';
+                        
+                        result.agent_output.tool_calls.forEach(toolCall => {
+                            const toolCallDiv = document.createElement('div');
+                            toolCallDiv.className = 'tool-call';
+                            toolCallDiv.innerHTML = `
+                                <div>${toolCall.name}(${JSON.stringify(toolCall.arguments)})</div>
+                            `;
+                            toolCallsDiv.appendChild(toolCallDiv);
+                        });
+                        
+                        resultDiv.appendChild(toolCallsDiv);
+                    }
 
-      const title = document.getElementById('new-post-title').value.trim();
-      const content = document.getElementById('new-post-content').value.trim();
+                    // Tool results
+                    if (result.tool_results && result.tool_results.length > 0) {
+                        const toolResultsDiv = document.createElement('div');
+                        toolResultsDiv.innerHTML = '<strong>Tool Results:</strong>';
+                        
+                        result.tool_results.forEach(toolResult => {
+                            if (toolResult.role === 'tool') {
+                                const toolResultDiv = document.createElement('div');
+                                toolResultDiv.className = 'tool-result';
+                                toolResultDiv.innerHTML = `<pre>${toolResult.content}</pre>`;
+                                toolResultsDiv.appendChild(toolResultDiv);
+                            }
+                        });
+                        
+                        resultDiv.appendChild(toolResultsDiv);
+                    }
 
-      if (!content) {
-        alert('Post content is required.');
-        return;
-      }
+                    // Summary
+                    if (result.summary_output) {
+                        const summaryDiv = document.createElement('div');
+                        summaryDiv.className = 'summary';
+                        summaryDiv.innerHTML = `
+                            <strong>Summary:</strong>
+                            <pre>${result.summary_output.summary}</pre>
+                            <strong>Instructions for Next Pass:</strong>
+                            <pre>${result.summary_output.instructions_for_next_pass}</pre>
+                        `;
+                        resultDiv.appendChild(summaryDiv);
+                    }
 
-      fetch(`/api/forums/${currentForumId}/posts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: title || null, content })
-      })
-      .then(response => response.json())
-      .then(data => {
-        document.getElementById('new-post-title').value = '';
-        document.getElementById('new-post-content').value = '';
-        // Refresh the forum
-        viewForum(currentForumId);
-      })
-      .catch(err => {
-        console.error('Error creating post:', err);
-      });
-    }
-
-    function createNewForum() {
-      const title = document.getElementById('new-forum-title').value.trim();
-      const description = document.getElementById('new-forum-desc').value.trim();
-
-      if (!title) {
-        alert('Forum title is required.');
-        return;
-      }
-
-      fetch('/api/forums', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, description })
-      })
-      .then(response => response.json())
-      .then(data => {
-        alert(`Forum created: ${data.title}`);
-        fetchForums();
-      })
-      .catch(err => {
-        console.error('Error creating forum:', err);
-      });
-    }
-
-    // Show/hide the reply form
-    function showReplyForm(postId) {
-      const form = document.getElementById(`reply-form-${postId}`);
-      form.style.display = form.style.display === 'none' ? 'block' : 'none';
-    }
-
-    function submitReply(parentId) {
-      const content = document.getElementById(`reply-content-${parentId}`).value.trim();
-      if (!content) {
-        alert('Reply content is required.');
-        return;
-      }
-
-      fetch(`/api/forums/${currentForumId}/posts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, parent_id: parentId })
-      })
-      .then(response => response.json())
-      .then(data => {
-        document.getElementById(`reply-content-${parentId}`).value = '';
-        document.getElementById(`reply-form-${parentId}`).style.display = 'none';
-        viewForum(currentForumId);
-      })
-      .catch(err => {
-        console.error('Error creating reply:', err);
-      });
-    }
-
-    // Single post view: show the selected post + all descendants fully
-    function viewSinglePost(postId, updateHistory = true) {
-      if (updateHistory) {
-        updateURL(`/forum/${currentForumId}/post/${postId}`);
-      }
-      const postsContainer = document.getElementById('posts-container');
-
-      // Show a "back to forum" button if we haven't already
-      let backButton = postsContainer.querySelector('.back-to-thread');
-      if (!backButton) {
-        backButton = document.createElement('div');
-        backButton.className = 'back-to-thread';
-        backButton.innerHTML = '<button class="neon-button" onclick="showAllPosts()">Back to Forum</button>';
-        postsContainer.insertBefore(backButton, postsContainer.firstChild);
-      }
-      backButton.style.display = 'block';
-
-      // Hide *all* .forum-item elements first
-      const allPosts = postsContainer.querySelectorAll('.forum-item');
-      allPosts.forEach(item => {
-        item.style.display = 'none';
-      });
-
-      // Also hide snippet DIVs so they don't show up in single post view
-      const snippetDivs = postsContainer.querySelectorAll('[data-snippet="true"]');
-      snippetDivs.forEach(div => {
-        div.style.display = 'none';
-      });
-
-      // Function: Show a post plus its ancestors
-      function showPostAndParents(elem) {
-        if (!elem) return;
-        elem.style.display = 'block';
-
-        // Indentation used to figure out ancestors
-        const currentMargin = parseInt(elem.style.marginLeft || '0');
-        if (currentMargin > 0) {
-          // We look backward for a post with less indentation
-          let prev = elem.previousElementSibling;
-          while (prev) {
-            const prevMargin = parseInt(prev.style.marginLeft || '0');
-            if (prevMargin < currentMargin) {
-              showPostAndParents(prev);
-              break;
+                    contentDiv.appendChild(resultDiv);
+                });
             }
-            prev = prev.previousElementSibling;
-          }
-        }
-      }
 
-      // Function: Show a post's descendants recursively
-      function showAllChildren(elem) {
-        if (!elem) return;
-        elem.style.display = 'block';
-        const currentMargin = parseInt(elem.style.marginLeft || '0');
-        let next = elem.nextElementSibling;
-        while (next) {
-          const nextMargin = parseInt(next.style.marginLeft || '0');
-          if (nextMargin <= currentMargin) break;
-          next.style.display = 'block';
-          showAllChildren(next);
-          next = next.nextElementSibling;
-        }
-      }
+            function renderError(message) {
+                contentDiv.innerHTML = `<div class="error">Error: ${message}</div>`;
+            }
 
-      // Find the clicked post's .forum-item div
-      allPosts.forEach(item => {
-        const trigger = item.querySelector(`[onclick="viewSinglePost('${postId}')"]`);
-        if (trigger) {
-          // Show this post, its parents, and all its children
-          showPostAndParents(item);
-          showAllChildren(item);
-        }
-      });
-    }
+            function showLoading() {
+                loadingDiv.style.display = 'block';
+                contentDiv.innerHTML = '';
+            }
 
-    // Exit single post view -> show entire forum again
-    function showAllPosts() {
-      updateURL(`/forum/${currentForumId}`);
-      const postsContainer = document.getElementById('posts-container');
-      // Hide the single-post "back" button
-      const backButton = postsContainer.querySelector('.back-to-thread');
-      if (backButton) {
-        backButton.style.display = 'none';
-      }
-      // Show all forum items again
-      const allPosts = postsContainer.querySelectorAll('.forum-item');
-      allPosts.forEach(p => {
-        p.style.display = 'block';
-      });
-    }
+            function hideLoading() {
+                loadingDiv.style.display = 'none';
+            }
 
-    // Refresh posts for current forum
-    function refreshPosts() {
-      if (currentForumId) {
-        viewForum(currentForumId, false);
-      }
-    }
-
-    // Refresh whichever view we're in (forums or single forum)
-    function refreshCurrent() {
-      if (currentForumId) {
-        refreshPosts();
-      } else {
-        fetchForums();
-      }
-    }
-
-    // Parallax effect
-    document.addEventListener('mousemove', (e) => {
-      const parallaxLayers = document.querySelectorAll('.parallax-layer');
-      const mouseX = (window.innerWidth / 2 - e.clientX) / 50;
-      const mouseY = (window.innerHeight / 2 - e.clientY) / 50;
-
-      parallaxLayers.forEach(layer => {
-        const speed = layer.getAttribute('data-speed') || 1;
-        const x = mouseX * speed;
-        const y = mouseY * speed;
-        layer.style.transform = `translateX(${x}px) translateY(${y}px) translateZ(-50px) scale(1.5)`;
-      });
-    });
-
-    // Add window shapes
-    function addWindowShapes() {
-      const forumItems = document.querySelectorAll('.forum-item');
-      forumItems.forEach(item => {
-        if (!item.querySelector('.window-shape')) {
-          const shape1 = document.createElement('div');
-          shape1.className = 'window-shape window-shape-1';
-          const shape2 = document.createElement('div');
-          shape2.className = 'window-shape window-shape-2';
-          item.appendChild(shape1);
-          item.appendChild(shape2);
-        }
-      });
-    }
-
-    // Wrap original fetchForums to insert shapes
-    const originalFetchForums = fetchForums;
-    fetchForums = function() {
-      originalFetchForums();
-      setTimeout(addWindowShapes, 100);
-    };
-
-    // Wrap original viewForum to insert shapes
-    const originalViewForum = viewForum;
-    viewForum = function(forumId, updateHistory = true) {
-      const promise = originalViewForum(forumId, updateHistory);
-      promise.then(() => setTimeout(addWindowShapes, 100));
-      return promise;
-    };
-
-    // Initialize
-    document.addEventListener('DOMContentLoaded', () => {
-      handleURL(window.location.pathname);
-      // Parallax setup
-      document.querySelectorAll('.parallax-layer').forEach((layer, index) => {
-        layer.setAttribute('data-speed', (index + 1) * 0.2);
-      });
-    });
-  </script>
-</body>
+            // Initialize the app
+            window.addEventListener('hashchange', handleRoute);
+            handleRoute(); // Handle initial route
+        </script>
+    </body>
 </html>

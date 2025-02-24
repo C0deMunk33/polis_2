@@ -1,8 +1,9 @@
 try:
     from .common import call_ollama_chat, embed_with_ollama, convert_file, chunk_text, Message, ToolCall
+    from .agent_database import AgentDatabase
 except ImportError:
     from common import call_ollama_chat, embed_with_ollama, convert_file, chunk_text, Message, ToolCall
-    
+    from agent_database import AgentDatabase
 from datetime import datetime
 from typing import List, Optional, Callable
 from pydantic import BaseModel, Field
@@ -11,6 +12,8 @@ import json
 import traceback
 import warnings
 warnings.filterwarnings(action="ignore", message="unclosed", category=ResourceWarning)
+import sqlite3
+import uuid
 
 class AgentOutputSchema(BaseModel):
     thoughts: str = Field(description="your thoughts. This is part of your chain of thought process.")
@@ -25,16 +28,19 @@ class AgentSummarySchema(BaseModel):
     summary: str = Field(description="string of summary. This is a summary of the actions taken, including what was thought and what was done.")
     instructions_for_next_pass: str = Field(description="This is the prompt you will receive in the next pass as a user message.")
 
-class AgentRunOutput(BaseModel): # TODO: generate and save this for each pass
+class AgentRunResult(BaseModel): # TODO: generate and save this for each pass
+    pass_id: str = Field(description="The id of the pass.")
+    agent_id: str = Field(description="The id of the agent that ran.")
+    pass_number: int = Field(description="The pass number of the agent run.")
     model: str = Field(description="The model used for the agent run.")
-    run_messages: List[Message] = Field(description="The messages from the agent run.")
+    run_messages: List[Message] = Field(description="The messages passed to the agent")
     agent_output: AgentOutputSchema = Field(description="The output of the agent run.")
+    tool_results: List[Message]
     summary_messages: List[Message] = Field(description="The messages from the summary pass.")
     summary_output: AgentSummarySchema = Field(description="The output of the summary pass.")
-    tool_results: List[str] = Field(description="The results from the tool calls.")
-
+    
 class Agent:
-    def __init__(self, default_llm_url: str, name: str, private_key: str, initial_instructions: str, initial_notes: List[str], buffer_size: int = 20, running: bool = True, standing_tool_calls: List[ToolCall] = []):
+    def __init__(self, default_llm_url: str, database_path: str, name: str, private_key: str, initial_instructions: str, initial_notes: List[str], buffer_size: int = 20, running: bool = True, standing_tool_calls: List[ToolCall] = []):
         self.default_llm_url = default_llm_url
         self.model = "TODO"
         self.name = name
@@ -44,11 +50,13 @@ class Agent:
         self.buffer_size = buffer_size
         self.message_buffer = []
         self.standing_tool_calls = standing_tool_calls
+        self.latest_summary_messages = []
         self.latest_post_system_messages = []
+        self.database_path = database_path
         self.message_buffer.append(Message(role="user", content=initial_instructions))
         # agent id is deterministic hash of private key
         self.id = hashlib.sha256(private_key.encode()).hexdigest()
-
+        self.pass_number = 0
         self.tools = []
         self.pass_summaries = []
         self.latest_pass_tool_call_results = []
@@ -168,6 +176,7 @@ You must respond in the following JSON format:
 
 
         try:    
+            self.latest_summary_messages = messages
             summary_response = call_ollama_chat(llm_url, "llama3.1:8b", messages, AgentSummarySchema.model_json_schema())
             return AgentSummarySchema.model_validate_json(summary_response)
         except Exception as e:
@@ -182,7 +191,7 @@ You must respond in the following JSON format:
             print(f"Summary response: {summary_response}")
             print(f"Stack trace: {traceback.format_exc()}")
             raise e
-    
+
     def run(self, llm_url: str, model: str, post_system_messages: List[Message], tool_callback: Callable):
         if not self.running:
             print(f"Agent {self.name} is not running")
@@ -238,8 +247,29 @@ You must respond in the following JSON format:
         print("\n\nFull Summary:")
         print(summary.model_dump_json(indent=4))
 
+        self.pass_number += 1
         self.pass_summaries.append(summary)
         self.notes.extend(summary.notes)
 
+        agent_run_result = AgentRunResult(
+            pass_id=str(uuid.uuid4()),
+            agent_id=self.id,
+            pass_number=self.pass_number,
+            model=model,
+            run_messages=messages,
+            agent_output=response,
+            tool_results=self.latest_pass_tool_call_results,
+            summary_messages=self.latest_summary_messages,
+            summary_output=summary
+        )
+
+        # save the agent run result to database
+        date_string = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        agent_database = AgentDatabase(self.database_path)
+        agent_database.save_agent(self.id, self.name, self.pass_number, date_string)
+        agent_database.save_agent_run_result(self.id, agent_run_result.pass_id, agent_run_result.pass_number, agent_run_result.model_dump_json(), date_string)
+
+
+        
         
         

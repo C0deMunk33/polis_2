@@ -23,3 +23,6 @@ if os.path.exists("std_err.txt"):
 # shared_files directory
 if os.path.exists("shared_files"):
     shutil.rmtree("shared_files")
+
+if os.path.exists("agent_database.db"):
+    os.remove("agent_database.db")

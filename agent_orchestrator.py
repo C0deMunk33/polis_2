@@ -121,7 +121,7 @@ def main():
     persona_managers = {}
     app_managers = {}
     notes_managers = {}
-    orchestrator = AgentOrchestrator(server_url="http://localhost:5000", model="llama3.1:8b")
+    orchestrator = AgentOrchestrator(server_url="http://localhost:5000", model="Qwen2.5-14B-Instruct-1M-GGUF")
     wiki_search = WikiSearch()
     user_directory = UserDirectory()
     def tool_callback(agent: Agent, tool_call: ToolCall):
@@ -228,6 +228,7 @@ def main():
         ]
 
         agent = Agent(  default_llm_url=orchestrator.server_url,
+                        database_path="agent_database.db",
                         name=f"agent{i}", 
                         private_key=f"{i}asdasdasdasd", 
                         initial_instructions="This is the beginning of your journey. You can use any tools available to you.", 
