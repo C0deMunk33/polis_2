@@ -99,6 +99,72 @@
                 white-space: pre-wrap;
                 word-wrap: break-word;
             }
+            .system-prompt-container {
+                margin-top: 15px;
+                margin-bottom: 15px;
+            }
+            .toggle-system-prompt {
+                background-color: #0c0c0c;
+                color: #33ff33;
+                border: 1px solid #33ff33;
+                border-radius: 3px;
+                padding: 5px 10px;
+                cursor: pointer;
+                font-family: 'Courier New', monospace;
+                margin-bottom: 10px;
+            }
+            .toggle-system-prompt:hover {
+                background-color: #33ff33;
+                color: #0c0c0c;
+            }
+            .system-prompt-content {
+                border-left: 2px solid #33ff33;
+                padding-left: 10px;
+                margin-top: 10px;
+                color: #aaffaa;
+            }
+            .run-messages-container {
+                margin-top: 15px;
+                margin-bottom: 15px;
+            }
+            .toggle-run-messages {
+                background-color: #0c0c0c;
+                color: #33ff33;
+                border: 1px solid #33ff33;
+                border-radius: 3px;
+                padding: 5px 10px;
+                cursor: pointer;
+                font-family: 'Courier New', monospace;
+                margin-bottom: 10px;
+            }
+            .toggle-run-messages:hover {
+                background-color: #33ff33;
+                color: #0c0c0c;
+            }
+            .run-messages-content {
+                border-left: 2px solid #33ff33;
+                padding-left: 10px;
+                margin-top: 10px;
+                max-height: 400px;
+                overflow-y: auto;
+            }
+            .message {
+                margin-bottom: 5px;
+                padding: 5px;
+                border-bottom: 1px dotted #33ff33;
+            }
+            .message.system {
+                color: #aaffaa;
+            }
+            .message.user {
+                color: #66ccff;
+            }
+            .message.assistant {
+                color: #ff66ff;
+            }
+            .message.tool {
+                color: #ffcc00;
+            }
         </style>
     </head>
     <body>
@@ -300,6 +366,81 @@
                         });
                         
                         resultDiv.appendChild(toolResultsDiv);
+                    }
+
+                    // System Prompt with expand/collapse button
+                    if (result.run_messages && result.run_messages.length > 0) {
+                        const systemPrompt = result.run_messages.find(msg => msg.role === 'system')?.content || '';
+                        if (systemPrompt) {
+                            const systemPromptDiv = document.createElement('div');
+                            systemPromptDiv.className = 'system-prompt-container';
+                            
+                            const toggleButton = document.createElement('button');
+                            toggleButton.className = 'toggle-system-prompt';
+                            toggleButton.textContent = 'Show System Prompt';
+                            
+                            const promptContent = document.createElement('div');
+                            promptContent.className = 'system-prompt-content';
+                            promptContent.style.display = 'none';
+                            promptContent.innerHTML = `<pre>${systemPrompt}</pre>`;
+                            
+                            toggleButton.addEventListener('click', () => {
+                                if (promptContent.style.display === 'none') {
+                                    promptContent.style.display = 'block';
+                                    toggleButton.textContent = 'Hide System Prompt';
+                                } else {
+                                    promptContent.style.display = 'none';
+                                    toggleButton.textContent = 'Show System Prompt';
+                                }
+                            });
+                            
+                            systemPromptDiv.appendChild(toggleButton);
+                            systemPromptDiv.appendChild(promptContent);
+                            resultDiv.appendChild(systemPromptDiv);
+                        }
+                    }
+
+                    // Run Messages with expand/collapse button
+                    if (result.run_messages && result.run_messages.length > 0) {
+                        const runMessagesDiv = document.createElement('div');
+                        runMessagesDiv.className = 'run-messages-container';
+                        
+                        const toggleButton = document.createElement('button');
+                        toggleButton.className = 'toggle-run-messages';
+                        toggleButton.textContent = 'Show Run Messages';
+                        
+                        const messagesContent = document.createElement('div');
+                        messagesContent.className = 'run-messages-content';
+                        messagesContent.style.display = 'none';
+                        
+                        // Format the run messages
+                        result.run_messages.forEach(msg => {
+                            const messageDiv = document.createElement('div');
+                            messageDiv.className = `message ${msg.role}`;
+                            
+                            if (msg.tool_calls) {
+                                messageDiv.innerHTML = `<strong>${msg.role}:</strong> [Tool Calls: ${msg.tool_calls.map(tc => tc.name).join(', ')}]`;
+                            } else {
+                                const content = msg.content ? msg.content.substring(0, 200) + (msg.content.length > 200 ? '...' : '') : '';
+                                messageDiv.innerHTML = `<strong>${msg.role}:</strong> ${content}`;
+                            }
+                            
+                            messagesContent.appendChild(messageDiv);
+                        });
+                        
+                        toggleButton.addEventListener('click', () => {
+                            if (messagesContent.style.display === 'none') {
+                                messagesContent.style.display = 'block';
+                                toggleButton.textContent = 'Hide Run Messages';
+                            } else {
+                                messagesContent.style.display = 'none';
+                                toggleButton.textContent = 'Show Run Messages';
+                            }
+                        });
+                        
+                        runMessagesDiv.appendChild(toggleButton);
+                        runMessagesDiv.appendChild(messagesContent);
+                        resultDiv.appendChild(runMessagesDiv);
                     }
 
                     // Summary
