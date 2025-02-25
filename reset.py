@@ -29,3 +29,6 @@ if os.path.exists("agent_database.db"):
 
 if os.path.exists("user_directory.db"):
     os.remove("user_directory.db")
+
+if os.path.exists("quest_database.db"):
+    os.remove("quest_database.db")

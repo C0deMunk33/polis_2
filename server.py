@@ -2,10 +2,12 @@ from flask import Flask, request, jsonify, send_from_directory
 import os
 import json
 import uuid
+import sqlite3
 
 from libs.agent_database import AgentDatabase, AgentTable, AgentRunResultsTable
 from libs.agent import AgentRunResult
 from tools.user_directory import UserDirectory
+from tools.quest_manager import Quest, QuestSubmission, QuestReview, QuestManager
 
 app = Flask(__name__)
 app.static_folder = 'web'
@@ -15,9 +17,11 @@ app.static_url_path = '/static'
 forum_db_path = os.path.join(os.path.dirname(__file__), 'forum.db')
 agent_db_path = os.path.join(os.path.dirname(__file__), 'agent_database.db')
 user_directory_db_path = os.path.join(os.path.dirname(__file__), 'user_directory.db')
+quest_db_path = os.path.join(os.path.dirname(__file__), 'quest_database.db')
 
 agent_database = AgentDatabase(agent_db_path)
 user_directory = UserDirectory(user_directory_db_path)
+quest_manager = QuestManager(agent_id="admin", db_path=quest_db_path)
 
 # Create a dummy admin agent for messaging
 class AdminAgent:
@@ -142,6 +146,79 @@ def get_new_messages():
 @app.route('/static/<path:path>')
 def send_static(path):
     return send_from_directory('web', path)
+
+# Add new quest-related endpoints
+@app.route('/api/get_agent_quests', methods=['GET'])
+def get_agent_quests():
+    agent_id = request.args.get('agent_id')
+    if not agent_id:
+        return jsonify({"error": "agent_id parameter is required"}), 400
+    db = sqlite3.connect(quest_db_path)
+    cursor = db.execute("SELECT * FROM quests WHERE agent_id = ?", (agent_id,))
+    quests = []
+    for row in cursor:
+        print(row)
+        quest_data = row[3]
+        quest = Quest.model_validate_json(quest_data)
+        result = {
+            "quest_id": row[0],
+            "agent_id": row[1],
+            "quest_title": row[2],
+            "quest": quest.model_dump_json()
+        }
+        quests.append(result)
+    db.close()
+    return jsonify(quests)
+
+@app.route('/api/get_quest_submissions', methods=['GET'])
+def get_quest_submissions():
+    quest_id = request.args.get('quest_id')
+    if not quest_id:
+        return jsonify({"error": "quest_id parameter is required"}), 400
+    
+    db = sqlite3.connect(quest_db_path)
+    cursor = db.execute("SELECT * FROM quest_submissions WHERE quest_id = ?", (quest_id,))
+    submissions = []
+    for row in cursor:
+        submissions.append(row)
+    db.close()
+    return jsonify(submissions)
+
+@app.route('/api/get_quest_reviews', methods=['GET'])
+def get_quest_reviews():
+    quest_id = request.args.get('quest_id')
+    if not quest_id:
+        return jsonify({"error": "quest_id parameter is required"}), 400
+    
+    db = sqlite3.connect(quest_db_path)
+    cursor = db.execute("SELECT * FROM quest_reviews WHERE quest_id = ?", (quest_id,))
+    reviews = []
+    for row in cursor:
+        reviews.append(row)
+    db.close()
+    
+    return jsonify(reviews)
+
+@app.route('/api/submit_quest_review', methods=['POST'])
+def submit_quest_review():
+    data = request.json
+    if not all(k in data for k in ['quest_id', 'submission_id', 'review_notes', 'accepted', 'exp_awarded']):
+        return jsonify({"error": "Missing required fields"}), 400
+    
+    import datetime
+    
+    review_id = str(uuid.uuid4())
+    review_date = datetime.datetime.now().isoformat()
+    
+    quest_manager.submit_quest_review(review_id, data['quest_id'], data['submission_id'], 'admin', 
+          data['quest_title'], data['review_notes'], data['accepted'], 
+          data['exp_awarded'], review_date)
+   
+    return jsonify({"success": True, "review_id": review_id})
+
+@app.route('/quests')
+def serve_quests():
+    return send_from_directory('web', 'quests.html')
 
 if __name__ == '__main__':
     # Run Flask in debug mode for local development

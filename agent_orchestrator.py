@@ -244,7 +244,7 @@ def main():
         notes_manager = NotesManager()
         notes_managers[agent.id] = notes_manager
 
-        quest_manager = QuestManager()
+        quest_manager = QuestManager(agent.id, "quest_database.db")
         quest_managers[agent.id] = quest_manager
 
         user_directory.add_user(agent)
@@ -252,7 +252,7 @@ def main():
         app_manager.add_app(persona_manager.get_toolset_details(), persona_manager.get_tool_schemas())
         app_manager.add_app(shared_code_runner.get_toolset_details(), shared_code_runner.get_tool_schemas())
         app_manager.add_app(quest_manager.get_toolset_details(), quest_manager.get_tool_schemas())
-        #app_manager.load_app(quest_manager.get_toolset_details().toolset_id)
+        app_manager.load_app(quest_manager.get_toolset_details().toolset_id)
         app_manager.add_app(wiki_search.get_toolset_details(), wiki_search.get_tool_schemas())
         app_manager.add_app(forum_directory.get_toolset_details(), forum_directory.get_tool_schemas())
         app_manager.add_app(file_manager.get_toolset_details(), file_manager.get_tool_schemas())

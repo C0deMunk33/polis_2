@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Quest Manager</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #0c0c0c;
+            color: #33ff33;
+            margin: 0;
+            padding: 20px;
+        }
+        .terminal {
+            background-color: #0c0c0c;
+            border: 1px solid #33ff33;
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 0 10px rgba(51, 255, 51, 0.5);
+            overflow: auto;
+            max-height: 80vh;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        h1, h2, h3 {
+            color: #33ff33;
+        }
+        button {
+            background-color: #0c0c0c;
+            color: #33ff33;
+            border: 1px solid #33ff33;
+            border-radius: 3px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #33ff33;
+            color: #0c0c0c;
+        }
+        .agent-item, .quest-item {
+            padding: 10px;
+            margin: 5px 0;
+            border: 1px solid #33ff33;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .agent-item:hover, .quest-item:hover {
+            background-color: rgba(51, 255, 51, 0.2);
+        }
+        .quest-details {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px dashed #33ff33;
+        }
+        .submission {
+            margin: 10px 0;
+            padding: 10px;
+            border-left: 2px solid #ffcc00;
+        }
+        .review {
+            margin: 10px 0;
+            padding: 10px;
+            border-left: 2px solid #ff66ff;
+        }
+        .review-form {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #33ff33;
+        }
+        .review-form input[type="text"],
+        .review-form input[type="number"],
+        .review-form textarea {
+            background-color: #0c0c0c;
+            color: #33ff33;
+            border: 1px solid #33ff33;
+            padding: 5px;
+            margin: 5px 0;
+            width: 100%;
+            font-family: 'Courier New', monospace;
+        }
+        .review-form label {
+            display: block;
+            margin-top: 10px;
+        }
+        .breadcrumb {
+            margin-bottom: 20px;
+        }
+        .breadcrumb a {
+            color: #33ff33;
+            text-decoration: none;
+        }
+        .breadcrumb a:hover {
+            text-decoration: underline;
+        }
+        .loading {
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0% { opacity: 1; }
+            50% { opacity: 0; }
+            100% { opacity: 1; }
+        }
+        .step {
+            margin-left: 20px;
+            padding: 5px;
+            border-left: 2px solid #33ff33;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Quest Manager</h1>
+        <div>
+            <button id="refresh-btn">Refresh</button>
+            <button id="home-btn">Home</button>
+            <button id="agents-btn">Agents</button>
+        </div>
+    </div>
+
+    <div class="breadcrumb" id="breadcrumb">
+        <a href="#/">Home</a>
+    </div>
+
+    <div class="terminal" id="terminal-output">
+        <div id="loading" class="loading">Loading...</div>
+        <div id="content"></div>
+    </div>
+
+    <script>
+        // Application state
+        const state = {
+            currentView: 'agents',
+            currentAgentId: null,
+            currentQuestId: null,
+            agents: [],
+            quests: [],
+            submissions: [],
+            reviews: []
+        };
+
+        // DOM elements
+        const terminalOutput = document.getElementById('terminal-output');
+        const contentDiv = document.getElementById('content');
+        const loadingDiv = document.getElementById('loading');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const homeBtn = document.getElementById('home-btn');
+        const agentsBtn = document.getElementById('agents-btn');
+        const breadcrumbDiv = document.getElementById('breadcrumb');
+
+        // Event listeners
+        refreshBtn.addEventListener('click', handleRefresh);
+        homeBtn.addEventListener('click', () => navigateTo('/'));
+        agentsBtn.addEventListener('click', () => navigateTo('/'));
+
+        function handleRefresh() {
+            fetchAgents();
+            if (state.currentView === 'agent-quests') {
+                fetchAgentQuests(state.currentAgentId);
+            } else if (state.currentView === 'quest-details') {
+                fetchQuestDetails(state.currentQuestId);
+            }
+        }
+
+        // Router
+        async function handleRoute() {
+            const hash = window.location.hash || '#/';
+
+            await fetchAgents();
+            if (hash === '#/' || hash === '#') {
+                state.currentView = 'agents';
+                state.currentAgentId = null;
+                state.currentQuestId = null;
+                updateBreadcrumb();
+                renderAgentList();
+            } else if (hash.startsWith('#/agent/')) {
+                const parts = hash.split('/');
+                const agentId = parts[2];
+                if (parts.length > 3 && parts[3] === 'quest') {
+                    // Handle quest details view with agent context
+                    state.currentView = 'quest-details';
+                    state.currentAgentId = agentId;
+                    state.currentQuestId = parts[4];
+
+                    await fetchQuestDetails(parts[4]);
+                    updateBreadcrumb();
+                } else {
+                    // Handle agent quests view
+                    state.currentView = 'agent-quests';
+                    state.currentAgentId = agentId;
+                    state.currentQuestId = null;
+                    updateBreadcrumb();
+                    fetchAgentQuests(agentId);
+                }
+            }
+        }
+
+        function updateBreadcrumb() {
+            let html = '<a href="#/">Home</a>';
+            if (state.currentAgentId) {
+                const agent = state.agents.find(a => a.agent_id === state.currentAgentId);
+                html += ` > <a href="#/agent/${state.currentAgentId}">${agent?.agent_name || state.currentAgentId}</a>`;
+                
+                if (state.currentView === 'quest-details' && state.currentQuestId) {
+                    const quest = state.quests.find(q => q.quest_id === state.currentQuestId);
+                    const parsed_quest = quest ? JSON.parse(quest.quest) : null;
+                    html += ` > ${parsed_quest?.title || state.currentQuestId}`;
+                }
+            }
+            breadcrumbDiv.innerHTML = html;
+        }
+
+        function navigateTo(path) {
+            window.location.hash = path;
+        }
+
+        // API calls
+        async function fetchAgents() {
+            showLoading();
+            try {
+                const response = await fetch('/api/list_agents');
+                if (!response.ok) throw new Error('Failed to fetch agents');
+                state.agents = await response.json();
+               
+            } catch (error) {
+                renderError(error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function fetchAgentQuests(agentId) {
+            showLoading();
+            try {
+                const response = await fetch(`/api/get_agent_quests?agent_id=${agentId}`);
+                if (!response.ok) throw new Error('Failed to fetch quests');
+                state.quests = await response.json();
+                renderAgentQuests();
+            } catch (error) {
+                renderError(error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function fetchQuestDetails(questId) {
+            showLoading();
+            console.log("fetching quest details for", questId);
+            try {
+                const [submissionsRes, reviewsRes, agentQuestRes] = await Promise.all([
+                    fetch(`/api/get_quest_submissions?quest_id=${questId}`),
+                    fetch(`/api/get_quest_reviews?quest_id=${questId}`),
+                    fetch(`/api/get_agent_quests?agent_id=${state.currentAgentId}`)
+                ]);
+                
+                if (!submissionsRes.ok || !reviewsRes.ok) {
+                    throw new Error('Failed to fetch quest details');
+                }
+                state.quests = await agentQuestRes.json();
+                state.submissions = await submissionsRes.json();
+                state.reviews = await reviewsRes.json();
+                renderQuestDetails();
+            } catch (error) {
+                renderError(error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function submitReview(questId, submissionId, reviewData) {
+            try {
+                const response = await fetch('/api/submit_quest_review', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        quest_id: questId,
+                        submission_id: submissionId,
+                        ...reviewData
+                    }),
+                });
+                
+                if (!response.ok) throw new Error('Failed to submit review');
+                
+                // Refresh quest details
+                fetchQuestDetails(questId);
+            } catch (error) {
+                renderError(error.message);
+            }
+        }
+
+        // Rendering functions
+        function renderAgentList() {
+            contentDiv.innerHTML = '<h2>Select an Agent</h2>';
+            
+            if (state.agents.length === 0) {
+                contentDiv.innerHTML += '<p>No agents found.</p>';
+                return;
+            }
+
+            state.agents.forEach(agent => {
+                const agentDiv = document.createElement('div');
+                agentDiv.className = 'agent-item';
+                agentDiv.innerHTML = `
+                    <strong>${agent.agent_name}</strong> (ID: ${agent.agent_id.substring(0, 8)}...)
+                    <br>Pass Number: ${agent.pass_number}
+                    <br>Last Run: ${agent.last_run_date}
+                `;
+                agentDiv.addEventListener('click', () => {
+                    navigateTo(`/agent/${agent.agent_id}`);
+                });
+                contentDiv.appendChild(agentDiv);
+            });
+        }
+
+        function renderAgentQuests() {
+            const agent = state.agents.find(a => a.agent_id === state.currentAgentId);
+            contentDiv.innerHTML = `<h2>Quests for ${agent?.agent_name || state.currentAgentId}</h2>`;
+            
+            if (state.quests.length === 0) {
+                contentDiv.innerHTML += '<p>No quests found for this agent.</p>';
+                return;
+            }
+
+            state.quests.forEach(quest => {
+                const parsed_quest = JSON.parse(quest.quest);
+                const questDiv = document.createElement('div');
+                questDiv.className = 'quest-item';
+                questDiv.innerHTML = `
+                    <strong>${parsed_quest.title}</strong>
+                    <br>Status: ${parsed_quest.status}
+                    <br>Current Step: ${parsed_quest.current_step}
+                `;
+                questDiv.addEventListener('click', () => {
+                    navigateTo(`/agent/${state.currentAgentId}/quest/${quest.quest_id}`);
+                });
+                contentDiv.appendChild(questDiv);
+            });
+        }
+
+        function renderQuestDetails() {
+            // log all the quest ids
+            console.log(state.currentQuestId);
+            const quest = state.quests.find(q => q.quest_id === state.currentQuestId);
+            if (!quest) {
+                renderError('Quest not found');
+                return;
+            }
+
+            const parsed_quest = JSON.parse(quest.quest);
+
+            contentDiv.innerHTML = `
+                <h2>${quest.quest_title}</h2>
+                <div class="quest-details">
+                    <p><strong>Status:</strong> ${parsed_quest.status}</p>
+                    <p><strong>Description:</strong> ${parsed_quest.description}</p>
+                    <p><strong>Overall Goal:</strong> ${parsed_quest.overall_goal}</p>
+                    <p><strong>Current Step:</strong> ${parsed_quest.current_step}</p>
+                    <h3>Steps:</h3>
+                    ${parsed_quest.steps.map((step, index) => `
+                        <div class="step">
+                            <strong>${index + 1}. ${step.title}</strong>
+                            <br>Description: ${step.description}
+                            <br>Completion Criteria: ${step.completion_criteria}
+                        </div>
+                    `).join('')}
+                    <h3>Notes:</h3>
+                    <ul>
+                        ${parsed_quest.notes.map(note => `<li>${note}</li>`).join('')}
+                    </ul>
+                </div>
+            `;
+
+            // Render submissions
+            if (state.submissions.length > 0) {
+                contentDiv.innerHTML += '<h3>Submissions</h3>';
+                state.submissions.forEach(submission => {
+                    const submissionDiv = document.createElement('div');
+                    submissionDiv.className = 'submission';
+                    submissionDiv.innerHTML = `
+                        <p><strong>Date:</strong> ${submission.submission_date}</p>
+                        <p><strong>Notes:</strong> ${submission.submission_notes}</p>
+                    `;
+
+                    // Add review form if no review exists for this submission
+                    const hasReview = state.reviews.some(r => r.quest_submission_id === submission.submission_id);
+                    if (!hasReview) {
+                        submissionDiv.innerHTML += `
+                            <div class="review-form">
+                                <h4>Submit Review</h4>
+                                <label>Review Notes:
+                                    <textarea id="review-notes-${submission.submission_id}"></textarea>
+                                </label>
+                                <label>Experience Points:
+                                    <input type="number" id="exp-awarded-${submission.submission_id}" value="0">
+                                </label>
+                                <label>
+                                    <input type="checkbox" id="accepted-${submission.submission_id}"> Accepted
+                                </label>
+                                <button onclick="submitReviewForSubmission('${submission.submission_id}', '${quest.quest_id}', '${quest.quest_title}')">
+                                    Submit Review
+                                </button>
+                            </div>
+                        `;
+                    }
+
+                    contentDiv.appendChild(submissionDiv);
+                });
+            }
+
+            // Render reviews
+            if (state.reviews.length > 0) {
+                contentDiv.innerHTML += '<h3>Reviews</h3>';
+                state.reviews.forEach(review => {
+                    const reviewDiv = document.createElement('div');
+                    reviewDiv.className = 'review';
+                    reviewDiv.innerHTML = `
+                        <p><strong>Date:</strong> ${review.review_date}</p>
+                        <p><strong>Status:</strong> ${review.accepted ? 'Accepted' : 'Rejected'}</p>
+                        <p><strong>Experience Awarded:</strong> ${review.exp_awarded}</p>
+                        <p><strong>Notes:</strong> ${review.review_notes}</p>
+                    `;
+                    contentDiv.appendChild(reviewDiv);
+                });
+            }
+        }
+
+        function renderError(message) {
+            contentDiv.innerHTML = `<div class="error">Error: ${message}</div>`;
+        }
+
+        function showLoading() {
+            loadingDiv.style.display = 'block';
+            contentDiv.innerHTML = '';
+        }
+
+        function hideLoading() {
+            loadingDiv.style.display = 'none';
+        }
+
+        // Helper function for submitting reviews
+        window.submitReviewForSubmission = function(submissionId, questId, questTitle) {
+            const reviewNotes = document.getElementById(`review-notes-${submissionId}`).value;
+            const expAwarded = parseInt(document.getElementById(`exp-awarded-${submissionId}`).value);
+            const accepted = document.getElementById(`accepted-${submissionId}`).checked;
+
+            submitReview(questId, submissionId, {
+                review_notes: reviewNotes,
+                exp_awarded: expAwarded,
+                accepted: accepted,
+                quest_title: questTitle
+            });
+        };
+
+        // Initialize the app
+        window.addEventListener('hashchange', handleRoute);
+        handleRoute(); // Handle initial route
+    </script>
+</body>
+</html> 

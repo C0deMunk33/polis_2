@@ -3,7 +3,7 @@ from typing import Dict, List
 
 from libs.common import call_ollama_chat, Message, apply_unified_diff, ToolSchema, ToolCall, ToolsetDetails
 from libs.agent import Agent
-
+import sqlite3
 
 # TODO: figure out why these keep happening, looks like it's the new version of ollama
 import warnings
@@ -45,11 +45,69 @@ class QuestReview(BaseModel):
     review_notes: str = Field(description="The notes for the review.")
     accepted: bool = Field(description="Whether the quest was accepted.")
 
+class QuestDBObject(BaseModel):
+    quest_id: str = Field(description="The id of the quest.")
+    agent_id: str = Field(description="The id of the agent.")
+    quest_title: str = Field(description="The title of the quest.")
+    quest: str = Field(description="Quest object as a json string")
+    
+class QuestSubmissionDBObject(BaseModel):
+    submission_id: str = Field(description="The id of the submission.")
+    quest_id: str = Field(description="The id of the quest.")
+    submitter_id: str = Field(description="The id of the agent.")
+    quest_title: str = Field(description="The title of the quest.")
+    submission_notes: str = Field(description="The notes for the submission.")
+    submission_date: str = Field(description="The date of the submission.")
+
+class QuestReviewDBObject(BaseModel):
+    review_id: str = Field(description="The id of the review.")
+    quest_id: str = Field(description="The id of the quest.")
+    quest_submission_id: str = Field(description="The id of the quest submission.")
+    reviewer_id: str = Field(description="The id of the agent.")
+    quest_title: str = Field(description="The title of the quest.")
+    review_notes: str = Field(description="The notes for the review.")
+    accepted: bool = Field(description="Whether the quest was accepted.")
+    exp_awarded: int = Field(description="The amount of experience awarded for the quest.")
+    review_date: str = Field(description="The date of the review.")
+
 class QuestManager:
-    def __init__(self):
+    def __init__(self, agent_id: str, db_path: str):
         self.quests = {}
         self.current_quest_name = None
         self.quest_submissions = []
+        self.agent_id = agent_id
+        self.db_path = db_path
+        self.db = sqlite3.connect(self.db_path)
+        self.db.row_factory = sqlite3.Row
+        self.db.execute("""CREATE TABLE IF NOT EXISTS quests (
+            quest_id TEXT PRIMARY KEY,
+            agent_id TEXT,
+            quest_title TEXT,
+            quest TEXT
+        )""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS quest_submissions (
+            submission_id TEXT PRIMARY KEY,
+            quest_id TEXT,
+            submitter_id TEXT,
+            quest_title TEXT,
+            submission_notes TEXT,
+            submission_date TEXT
+        )""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS quest_reviews (
+            review_id TEXT PRIMARY KEY,
+            quest_id TEXT,
+            quest_submission_id TEXT,
+            reviewer_id TEXT,
+            quest_title TEXT,
+            review_notes TEXT,
+            accepted BOOLEAN,
+            exp_awarded INTEGER,
+            review_date TEXT
+        )""")
+        
+        # Load quests from database
+        self._load_quests_from_db()
+
         names_of_tools_to_expose = [
             "get_quest_list",
             "create_quest",
@@ -75,13 +133,62 @@ class QuestManager:
             tool_schema = ToolSchema.model_validate_json(docstring)
             self.tool_schemas.append(tool_schema)
 
+    def _load_quests_from_db(self):
+        """Load quests from the database for this agent"""
+        cursor = self.db.execute("SELECT * FROM quests WHERE agent_id = ?", (self.agent_id,))
+        rows = cursor.fetchall()
+        for row in rows:
+            quest_data = row['quest']
+            quest = Quest.model_validate_json(quest_data)
+            self.quests[quest.title] = quest
+            
+    def _save_quest_to_db(self, quest: Quest):
+        """Save a quest to the database"""
+        import uuid
+        quest_id = str(uuid.uuid4())
+        
+        # Check if quest already exists
+        cursor = self.db.execute("SELECT quest_id FROM quests WHERE agent_id = ? AND quest_title = ?", 
+                               (self.agent_id, quest.title))
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing quest
+            self.db.execute("UPDATE quests SET quest = ? WHERE quest_id = ?", 
+                          (quest.model_dump_json(), existing['quest_id']))
+        else:
+            # Insert new quest
+            self.db.execute("INSERT INTO quests (quest_id, agent_id, quest_title, quest) VALUES (?, ?, ?, ?)",
+                          (quest_id, self.agent_id, quest.title, quest.model_dump_json()))
+        
+        self.db.commit()
+        
+    def _save_quest_submission_to_db(self, submission: QuestSubmission, quest_id: str):
+        """Save a quest submission to the database"""
+        import uuid
+        import datetime
+        
+        submission_id = str(uuid.uuid4())
+        submission_date = datetime.datetime.now().isoformat()
+        
+        self.db.execute("""
+            INSERT INTO quest_submissions 
+            (submission_id, quest_id, submitter_id, quest_title, submission_notes, submission_date) 
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (submission_id, quest_id, self.agent_id, submission.quest_title, 
+              submission.submission_notes, submission_date))
+        
+        self.db.commit()
+        return submission_id
+
     def get_quest_by_title(self, title: str):
         """This is for the orchestator, do not expose"""
-        return self.quests[title]
+        return self.quests.get(title)
     
     def add_quest(self, quest: Quest):
         """This is for the orchestator, do not expose"""
         self.quests[quest.title] = quest
+        self._save_quest_to_db(quest)
 
     def get_quest_list(self):
         """
@@ -172,6 +279,7 @@ Please respond with JSON in the following format:
             notes=[]
         )
         self.quests[quest.title] = quest
+        self._save_quest_to_db(quest)
         return self.get_quest(quest.title)
 
     def get_quest(self, title: str):
@@ -298,6 +406,7 @@ Please respond with JSON in the following format:
         if quest is None:
             return f"Quest with name {quest_title} not found \n"
         quest.notes.append(note)
+        self._save_quest_to_db(quest)
         return f"Quest {quest_title} note added: {note}"
     
     def insert_quest_step(self, step_index: int, quest_title: str, step_title: str, step_description: str, step_completion_criteria: str):
@@ -334,6 +443,7 @@ Please respond with JSON in the following format:
         if quest is None:
             raise ValueError(f"Quest with name {quest_title} not found")
         quest.steps.insert(step_index, QuestStep(title=step_title, description=step_description, completion_criteria=step_completion_criteria))
+        self._save_quest_to_db(quest)
         return f"Quest {quest_title} step {step_title} inserted at index {step_index}"
     
     def update_quest_step_description(self, quest_title: str, step_index: int, step_description: str):
@@ -361,6 +471,7 @@ Please respond with JSON in the following format:
         if quest is None:
             raise ValueError(f"Quest with name {quest_title} not found")
         quest.steps[step_index].description = step_description
+        self._save_quest_to_db(quest)
         return f"Quest {quest_title} step {step_index} description updated"
     
     def update_quest_step_completion_criteria(self, quest_title: str, step_index: int, step_completion_criteria: str):
@@ -390,6 +501,7 @@ Please respond with JSON in the following format:
         if step_index < 0 or step_index >= len(quest.steps):
             return "Step index out of bounds"
         quest.steps[step_index].completion_criteria = step_completion_criteria
+        self._save_quest_to_db(quest)
         return f"Quest {quest_title} step {step_index} completion criteria updated"
     
     def delete_quest_step(self, quest_title: str, step_index: int):
@@ -415,6 +527,7 @@ Please respond with JSON in the following format:
         if step_index < 0 or step_index >= len(quest.steps):
             return "Step index out of bounds"
         quest.steps.pop(step_index)
+        self._save_quest_to_db(quest)
         return f"Quest {quest_title} step {step_index} deleted"
 
     def delete_quest_note(self, quest_title: str, note_index: int):
@@ -440,6 +553,7 @@ Please respond with JSON in the following format:
         if note_index < 0 or note_index >= len(quest.notes):
             return "Note index out of bounds"
         quest.notes.pop(note_index)
+        self._save_quest_to_db(quest)
         return f"Quest {quest_title} note {note_index} deleted"
 
     def set_current_quest(self, name: str):
@@ -485,6 +599,7 @@ Please respond with JSON in the following format:
         if quest.status != "active":
             return "Quest is not active"
         quest.current_step = quest.steps[step_index].title
+        self._save_quest_to_db(quest)
         return f"Current quest {self.current_quest_name} step set to {quest.steps[step_index].title}"
 
     def submit_quest_for_review(self, quest_title: str, submission_notes: str):
@@ -508,12 +623,21 @@ Please respond with JSON in the following format:
         if quest is None:
             return "Quest not found"
         quest.status = "submitted for review"
+        self._save_quest_to_db(quest)
         
         quest_submission = QuestSubmission(
             quest_title=quest_title,
             submission_notes=submission_notes
         )
         self.quest_submissions.append(quest_submission)
+        
+        # Get quest_id from database
+        cursor = self.db.execute("SELECT quest_id FROM quests WHERE agent_id = ? AND quest_title = ?", 
+                               (self.agent_id, quest_title))
+        row = cursor.fetchone()
+        if row:
+            quest_id = row['quest_id']
+            self._save_quest_submission_to_db(quest_submission, quest_id)
 
         return f"Quest {quest_title} submitted for review"
 
@@ -538,7 +662,8 @@ Please respond with JSON in the following format:
         if quest is None:
             return "Quest not found"
         quest.status = "abandoned"
-        quest.abandonment_notes = abandonment_notes
+        quest.notes.append(f"Abandonment note: {abandonment_notes}")
+        self._save_quest_to_db(quest)
         return f"Quest {quest_title} abandoned"
     
     ############### Agent Interface ###############
