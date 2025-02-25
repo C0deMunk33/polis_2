@@ -232,7 +232,7 @@ Please respond with JSON in the following format:
         """
         quest = self.get_quest_by_title(quest_title)
         if quest is None:
-            raise ValueError(f"Quest with name {quest_title} not found")
+            return f"Quest with title {quest_title} not found"
         result = f"Quest: {quest_title}\n"
         for index, step in enumerate(quest.steps):
             if index == step_index:
@@ -242,7 +242,7 @@ Please respond with JSON in the following format:
                     result += step.description + "\n"
                     result += "Completion Criteria: " + step.completion_criteria + "\n"
                 return result
-        return None
+        return result
 
     def get_current_quest(self):
         """
@@ -253,9 +253,11 @@ Please respond with JSON in the following format:
             "arguments": []
         }
         """
+        if self.current_quest_name is None:
+            return "Quest:\n    [Current Quest not set]"
         quest = self.get_quest_by_title(self.current_quest_name)
         if quest is None:
-            return "Quest:\n    [Current Quest not set]"
+            return "Quest:\n    [Current set quest not found]"
         return self.get_quest(self.current_quest_name)
     
     def get_current_quest_step(self):

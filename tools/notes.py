@@ -46,9 +46,10 @@ class NotesManager:
         """
         result = "Notes:\n"
         if len(self.notes) == 0:
-            return "[No notes found]"
-        for i, note in enumerate(self.notes):
-            result += f"    [{i+1}] {note.title}\n{note.content}\n\n"
+            result += "    [No notes found]"
+        else:
+            for i, note in enumerate(self.notes):
+                result += f"    [{i+1}] {note.title}\n{note.content}\n\n"
         return result
     
     def delete_note(self, index: int):
