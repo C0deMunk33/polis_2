@@ -202,7 +202,7 @@ def main():
     file_manager = FileManager(shared_file_directory)
 
    
-    for i in range(10): 
+    for i in range(2): 
         
         standing_tool_calls = [
             ToolCall(
@@ -259,6 +259,7 @@ def main():
         app_manager.add_app(notes_manager.get_toolset_details(), notes_manager.get_tool_schemas())
         app_manager.load_app(notes_manager.get_toolset_details().toolset_id)
         app_manager.add_app(user_directory.get_toolset_details(), user_directory.get_tool_schemas())
+        
         app_managers[agent.id] = app_manager
         orchestrator.add_agent(agent)
 

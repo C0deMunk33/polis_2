@@ -557,7 +557,10 @@ class SafeCodeExecutor:
             return "Toolset not found"
         
         if tool_call.name == "execute":
-            print(f"Executing code: {tool_call.arguments['code']}")
+            if not tool_call.arguments["code_intent"]:
+                return "Code intent is required"
+            if not tool_call.arguments["code"]:
+                return "Code is required"
             return self.execute(tool_call.arguments["code"], tool_call.arguments["code_intent"]).model_dump_json()
         
         if tool_call.name == "clear_files":

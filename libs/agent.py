@@ -223,14 +223,19 @@ You must respond in the following JSON format:
         print("######################### Message Buffer #########################")
         """
 
-        response = call_ollama_chat(llm_url, model, messages, AgentOutputSchema.model_json_schema())
-        try:
-            response = AgentOutputSchema.model_validate_json(response)
-        except Exception as e:
-            print(f"Error validating response: {e}")
-            print(f"Response: {response}")
-            print(f"Stack trace: {traceback.format_exc()}")
-            raise e
+        retry_count = 0
+        while retry_count < 3:
+            response = call_ollama_chat(llm_url, model, messages, AgentOutputSchema.model_json_schema())
+            try:
+                response = AgentOutputSchema.model_validate_json(response)
+                break
+            except Exception as e:
+                retry_count += 1
+                if retry_count == 3:
+                    print(f"Error validating response: {e}")
+                    print(f"Response: {response}")
+                    print(f"Stack trace: {traceback.format_exc()}")
+                    raise e
         print()
         print(f"Thoughts:")
         print("    - " + response.thoughts)

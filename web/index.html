@@ -173,6 +173,7 @@
             <div>
                 <button id="refresh-btn">Refresh</button>
                 <button id="home-btn">Home</button>
+                <button id="messaging-btn">Messaging</button>
             </div>
         </div>
         
@@ -201,6 +202,7 @@
             const loadingDiv = document.getElementById('loading');
             const refreshBtn = document.getElementById('refresh-btn');
             const homeBtn = document.getElementById('home-btn');
+            const messagingBtn = document.getElementById('messaging-btn');
             const breadcrumbDiv = document.getElementById('breadcrumb');
 
             // Event listeners
@@ -214,6 +216,10 @@
 
             homeBtn.addEventListener('click', () => {
                 navigateTo('/');
+            });
+
+            messagingBtn.addEventListener('click', () => {
+                window.location.href = '/messaging';
             });
 
             // Router

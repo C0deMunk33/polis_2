@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Agent Messaging</title>
+        <style>
+            body {
+                font-family: 'Courier New', monospace;
+                background-color: #0c0c0c;
+                color: #33ff33;
+                margin: 0;
+                padding: 20px;
+            }
+            .terminal {
+                background-color: #0c0c0c;
+                border: 1px solid #33ff33;
+                border-radius: 5px;
+                padding: 20px;
+                margin-bottom: 20px;
+                box-shadow: 0 0 10px rgba(51, 255, 51, 0.5);
+                overflow: auto;
+                max-height: 80vh;
+            }
+            .header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 20px;
+            }
+            h1, h2, h3 {
+                color: #33ff33;
+            }
+            button {
+                background-color: #0c0c0c;
+                color: #33ff33;
+                border: 1px solid #33ff33;
+                border-radius: 3px;
+                padding: 8px 16px;
+                cursor: pointer;
+                font-family: 'Courier New', monospace;
+                margin-right: 10px;
+            }
+            button:hover {
+                background-color: #33ff33;
+                color: #0c0c0c;
+            }
+            .agent-item {
+                padding: 10px;
+                margin: 5px 0;
+                border: 1px solid #33ff33;
+                border-radius: 3px;
+                cursor: pointer;
+            }
+            .agent-item:hover {
+                background-color: rgba(51, 255, 51, 0.2);
+            }
+            .agent-item.selected {
+                background-color: rgba(51, 255, 51, 0.3);
+            }
+            .loading {
+                animation: blink 1s infinite;
+            }
+            @keyframes blink {
+                0% { opacity: 1; }
+                50% { opacity: 0; }
+                100% { opacity: 1; }
+            }
+            .breadcrumb {
+                margin-bottom: 20px;
+            }
+            .breadcrumb a {
+                color: #33ff33;
+                text-decoration: none;
+            }
+            .breadcrumb a:hover {
+                text-decoration: underline;
+            }
+            .messaging-container {
+                display: flex;
+                height: 70vh;
+            }
+            .agent-list {
+                width: 30%;
+                border-right: 1px solid #33ff33;
+                padding-right: 15px;
+                overflow-y: auto;
+            }
+            .conversation {
+                width: 70%;
+                padding-left: 15px;
+                display: flex;
+                flex-direction: column;
+            }
+            .message-history {
+                flex-grow: 1;
+                overflow-y: auto;
+                margin-bottom: 15px;
+                padding: 10px;
+                border: 1px solid #33ff33;
+                border-radius: 3px;
+            }
+            .message-input {
+                display: flex;
+            }
+            .message-input textarea {
+                flex-grow: 1;
+                background-color: #0c0c0c;
+                color: #33ff33;
+                border: 1px solid #33ff33;
+                border-radius: 3px;
+                padding: 8px;
+                font-family: 'Courier New', monospace;
+                resize: none;
+                height: 60px;
+            }
+            .message-input button {
+                margin-left: 10px;
+                align-self: flex-end;
+            }
+            .message {
+                margin-bottom: 10px;
+                padding: 8px;
+                border-radius: 3px;
+                max-width: 80%;
+            }
+            .message.incoming {
+                background-color: rgba(51, 255, 51, 0.1);
+                align-self: flex-start;
+                border-left: 3px solid #33ff33;
+            }
+            .message.outgoing {
+                background-color: rgba(102, 204, 255, 0.1);
+                align-self: flex-end;
+                border-right: 3px solid #66ccff;
+                color: #66ccff;
+                margin-left: auto;
+            }
+            .message-sender {
+                font-weight: bold;
+                margin-bottom: 5px;
+            }
+            .message-content {
+                word-wrap: break-word;
+            }
+            .no-agent-selected {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100%;
+                color: #666;
+                font-style: italic;
+            }
+            .refresh-button {
+                margin-bottom: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Agent Messaging</h1>
+            <div>
+                <button id="refresh-btn">Refresh</button>
+                <button id="home-btn">Agent Viewer</button>
+            </div>
+        </div>
+        
+        <div class="breadcrumb">
+            <a href="/">Agent Viewer</a> > <a href="/messaging">Messaging</a>
+        </div>
+        
+        <div class="terminal">
+            <div id="loading" class="loading">Loading...</div>
+            
+            <div class="messaging-container" id="messaging-container" style="display: none;">
+                <div class="agent-list" id="agent-list">
+                    <h2>Agents</h2>
+                    <button id="refresh-agents-btn" class="refresh-button">Refresh Agents</button>
+                    <div id="agents-content"></div>
+                </div>
+                
+                <div class="conversation" id="conversation">
+                    <div id="no-agent-selected" class="no-agent-selected">
+                        <p>Select an agent to start messaging</p>
+                    </div>
+                    
+                    <div id="conversation-content" style="display: none;">
+                        <h2 id="conversation-header">Conversation</h2>
+                        <div class="message-history" id="message-history"></div>
+                        
+                        <div class="message-input">
+                            <textarea id="message-input" placeholder="Type your message here..."></textarea>
+                            <button id="send-btn">Send</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // Application state
+            const state = {
+                agents: [],
+                selectedAgentId: null,
+                selectedAgentName: null,
+                messages: [],
+                pollingInterval: null
+            };
+
+            // DOM elements
+            const loadingDiv = document.getElementById('loading');
+            const messagingContainer = document.getElementById('messaging-container');
+            const agentsContent = document.getElementById('agents-content');
+            const refreshBtn = document.getElementById('refresh-btn');
+            const homeBtn = document.getElementById('home-btn');
+            const refreshAgentsBtn = document.getElementById('refresh-agents-btn');
+            const noAgentSelected = document.getElementById('no-agent-selected');
+            const conversationContent = document.getElementById('conversation-content');
+            const conversationHeader = document.getElementById('conversation-header');
+            const messageHistory = document.getElementById('message-history');
+            const messageInput = document.getElementById('message-input');
+            const sendBtn = document.getElementById('send-btn');
+
+            // Event listeners
+            refreshBtn.addEventListener('click', () => {
+                fetchAgents();
+                if (state.selectedAgentId) {
+                    fetchMessages(state.selectedAgentId);
+                }
+            });
+
+            homeBtn.addEventListener('click', () => {
+                window.location.href = '/';
+            });
+
+            refreshAgentsBtn.addEventListener('click', fetchAgents);
+
+            sendBtn.addEventListener('click', sendMessage);
+            
+            messageInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+
+            // API calls
+            async function fetchAgents() {
+                showLoading();
+                try {
+                    const response = await fetch('/api/get_users');
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch agents');
+                    }
+                    state.agents = await response.json();
+                    renderAgentList();
+                } catch (error) {
+                    renderError(error.message);
+                } finally {
+                    hideLoading();
+                }
+            }
+
+            async function fetchMessages(agentId) {
+                try {
+                    const response = await fetch(`/api/get_messages?sender_id=${agentId}&limit=50`);
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch messages');
+                    }
+                    state.messages = await response.json();
+                    renderMessages();
+                } catch (error) {
+                    renderError(error.message);
+                }
+            }
+
+            async function sendMessage() {
+                const message = messageInput.value.trim();
+                if (!message || !state.selectedAgentId) return;
+
+                try {
+                    const response = await fetch('/api/send_message', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            recipient_id: state.selectedAgentId,
+                            message: message
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to send message');
+                    }
+
+                    // Clear input and refresh messages
+                    messageInput.value = '';
+                    fetchMessages(state.selectedAgentId);
+                } catch (error) {
+                    renderError(error.message);
+                }
+            }
+
+            async function checkNewMessages() {
+                try {
+                    const response = await fetch('/api/get_new_messages');
+                    if (!response.ok) {
+                        throw new Error('Failed to check new messages');
+                    }
+                    const newMessages = await response.json();
+                    
+                    if (newMessages.length > 0) {
+                        // If we have new messages and the sender is our selected agent, refresh the conversation
+                        const relevantMessages = newMessages.filter(msg => {
+                            return msg.sender.includes(state.selectedAgentName);
+                        });
+                        
+                        if (relevantMessages.length > 0 && state.selectedAgentId) {
+                            fetchMessages(state.selectedAgentId);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error checking new messages:', error);
+                }
+            }
+
+            // Rendering functions
+            function renderAgentList() {
+                agentsContent.innerHTML = '';
+                
+                if (state.agents.length === 0) {
+                    agentsContent.innerHTML = '<p>No agents found.</p>';
+                    return;
+                }
+
+                state.agents.forEach(agent => {
+                    // Skip the admin agent
+                    if (agent.user_id === 'admin') return;
+                    
+                    const agentDiv = document.createElement('div');
+                    agentDiv.className = 'agent-item';
+                    if (agent.user_id === state.selectedAgentId) {
+                        agentDiv.className += ' selected';
+                    }
+                    
+                    agentDiv.innerHTML = `<strong>${agent.name}</strong>`;
+                    agentDiv.addEventListener('click', () => {
+                        selectAgent(agent.user_id, agent.name);
+                    });
+                    
+                    agentsContent.appendChild(agentDiv);
+                });
+            }
+
+            function renderMessages() {
+                messageHistory.innerHTML = '';
+                
+                if (state.messages.length === 0) {
+                    messageHistory.innerHTML = '<p>No messages yet. Start the conversation!</p>';
+                    return;
+                }
+
+                // Display messages in reverse order (newest at the bottom)
+                state.messages.slice().reverse().forEach(msg => {
+                    const messageDiv = document.createElement('div');
+                    const isAdmin = msg.sender === 'Admin';
+                    messageDiv.className = `message ${isAdmin ? 'outgoing' : 'incoming'}`;
+                    
+                    messageDiv.innerHTML = `
+                        <div class="message-sender">${msg.sender}</div>
+                        <div class="message-content">${msg.message}</div>
+                    `;
+                    
+                    messageHistory.appendChild(messageDiv);
+                });
+                
+                // Scroll to bottom
+                messageHistory.scrollTop = messageHistory.scrollHeight;
+            }
+
+            function selectAgent(agentId, agentName) {
+                state.selectedAgentId = agentId;
+                state.selectedAgentName = agentName;
+                
+                // Update UI
+                noAgentSelected.style.display = 'none';
+                conversationContent.style.display = 'block';
+                conversationHeader.textContent = `Conversation with ${agentName}`;
+                
+                // Highlight selected agent
+                const agentItems = document.querySelectorAll('.agent-item');
+                agentItems.forEach(item => {
+                    item.classList.remove('selected');
+                    if (item.textContent.includes(agentName)) {
+                        item.classList.add('selected');
+                    }
+                });
+                
+                // Fetch messages for this agent
+                fetchMessages(agentId);
+            }
+
+            function renderError(message) {
+                messagingContainer.innerHTML = `<div class="error">Error: ${message}</div>`;
+            }
+
+            function showLoading() {
+                loadingDiv.style.display = 'block';
+                messagingContainer.style.display = 'none';
+            }
+
+            function hideLoading() {
+                loadingDiv.style.display = 'none';
+                messagingContainer.style.display = 'flex';
+            }
+
+            // Initialize the app
+            document.addEventListener('DOMContentLoaded', () => {
+                fetchAgents();
+                
+                // Set up polling for new messages every 5 seconds
+                state.pollingInterval = setInterval(checkNewMessages, 5000);
+            });
+
+            // Clean up when leaving the page
+            window.addEventListener('beforeunload', () => {
+                if (state.pollingInterval) {
+                    clearInterval(state.pollingInterval);
+                }
+            });
+        </script>
+    </body>
+</html> 

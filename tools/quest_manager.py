@@ -567,6 +567,9 @@ Please respond with JSON in the following format:
             if "details" in tool_call.arguments:
                 details = tool_call.arguments["details"]
 
+            if "overall_goal" not in tool_call.arguments:
+                return "Overall goal is required"
+
             return self.create_quest(agent.default_llm_url, agent, tool_call.arguments["overall_goal"], context, details)
 
         elif tool_call.name == "get_quest":

@@ -6,7 +6,7 @@ except ImportError:
     from agent import Agent
 
 from typing import List
-
+import traceback
 class AppManager:
     def __init__(self):
         self.apps = {}
@@ -121,7 +121,16 @@ class AppManager:
         """
         result = "Available Tools:\n"
         for schema in self.schemas[app_id]:
-            tool_schema = ToolSchema.model_validate_json(schema)
+            tool_schema = None
+            try:
+                tool_schema = ToolSchema.model_validate_json(schema)
+            except Exception as e:
+                print(f"Error validating tool schema: {e}")
+                print(f"Schema: {schema}")
+                print(type(schema))
+                #print the stack trace
+                print(traceback.format_exc())
+                raise e
             result += f"        toolset_id='{tool_schema.toolset_id}' name='{tool_schema.name}' description='{tool_schema.description}' arguments='{tool_schema.arguments}'\n"
         return result
 

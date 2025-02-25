@@ -26,3 +26,6 @@ if os.path.exists("shared_files"):
 
 if os.path.exists("agent_database.db"):
     os.remove("agent_database.db")
+
+if os.path.exists("user_directory.db"):
+    os.remove("user_directory.db")

@@ -18,7 +18,7 @@ class PersonaManager:
         names_of_tools_to_expose = [
             "get_persona_list",
             "create_persona",
-            "get_persona",
+            "get_persona_by_index",
             "remove_persona",
             "get_current_persona",
             "set_current_persona",
@@ -80,7 +80,7 @@ Respond in the following JSON format:
         self.personas[name] = persona
         return f"Persona {name} created: \n{persona}"
     
-    def get_persona(self, index: int):
+    def get_persona_by_index(self, index: int):
         """
         {
             "toolset_id": "persona",
@@ -91,11 +91,19 @@ Respond in the following JSON format:
             ]
         }
         """
-        if index not in self.personas:
+        if index < 0 or index >= len(self.personas):
             return f"Persona with index {index} not found"
-        persona_string = f"Persona {self.personas[index].name}:\n"
-        persona_string += f"    Description: {self.personas[index].description}\n"
-        persona_string += f"    Goals: {self.personas[index].goals}\n"
+        
+        persona = None
+        for index, persona in enumerate(self.personas.values()):
+            if index == index:
+                persona = persona
+                break
+        if persona is None:
+            return f"Persona with index {index} not found"
+        persona_string = f"Persona {persona.name}:\n"
+        persona_string += f"    Description: {persona.description}\n"
+        persona_string += f"    Goals: {persona.goals}\n"
         persona_string += f"    Backstory: {self.personas[index].backstory}\n"
         persona_string += f"    Personality: {self.personas[index].personality}\n"
         return persona_string
@@ -127,7 +135,7 @@ Respond in the following JSON format:
         """
         if self.current_persona_index is None:
             return f"Persona:\n    [No current persona]"
-        return self.get_persona(self.current_persona_index)
+        return self.get_persona_by_index(self.current_persona_index)
 
     def set_current_persona(self, index: int):
         """
@@ -164,8 +172,8 @@ Respond in the following JSON format:
             return self.get_persona_list()
         elif tool_call.name == "create_persona":
             return self.create_persona(agent.default_llm_url, agent.model, tool_call.arguments["description"], tool_call.arguments["name"])
-        elif tool_call.name == "get_persona":
-            return self.get_persona(tool_call.arguments["index"])
+        elif tool_call.name == "get_persona_by_index":
+            return self.get_persona_by_index(tool_call.arguments["index"])
         elif tool_call.name == "remove_persona":
             return self.remove_persona(tool_call.arguments["index"])
         elif tool_call.name == "get_current_persona":
