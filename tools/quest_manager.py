@@ -142,26 +142,30 @@ class QuestManager:
             quest = Quest.model_validate_json(quest_data)
             self.quests[quest.title] = quest
             
-    def _save_quest_to_db(self, quest: Quest):
+    def _save_quest_to_db(self, quest: Quest, agent_id: str = None):
         """Save a quest to the database"""
         import uuid
         quest_id = str(uuid.uuid4())
         
+        if agent_id is None:
+            agent_id = self.agent_id
+        curr = sqlite3.connect(self.db_path)
         # Check if quest already exists
-        cursor = self.db.execute("SELECT quest_id FROM quests WHERE agent_id = ? AND quest_title = ?", 
-                               (self.agent_id, quest.title))
+        cursor = curr.execute("SELECT quest_id FROM quests WHERE agent_id = ? AND quest_title = ?", 
+                               (agent_id, quest.title))
         existing = cursor.fetchone()
         
         if existing:
             # Update existing quest
-            self.db.execute("UPDATE quests SET quest = ? WHERE quest_id = ?", 
+            curr.execute("UPDATE quests SET quest = ? WHERE quest_id = ?", 
                           (quest.model_dump_json(), existing['quest_id']))
         else:
             # Insert new quest
-            self.db.execute("INSERT INTO quests (quest_id, agent_id, quest_title, quest) VALUES (?, ?, ?, ?)",
-                          (quest_id, self.agent_id, quest.title, quest.model_dump_json()))
+            curr.execute("INSERT INTO quests (quest_id, agent_id, quest_title, quest) VALUES (?, ?, ?, ?)",
+                          (quest_id, agent_id, quest.title, quest.model_dump_json()))
         
-        self.db.commit()
+        curr.commit()
+        curr.close()
         
     def _save_quest_submission_to_db(self, submission: QuestSubmission, quest_id: str):
         """Save a quest submission to the database"""
@@ -181,6 +185,45 @@ class QuestManager:
         self.db.commit()
         return submission_id
 
+    def _create_quest_for_agent(self, llm_url: str, agent_id: str, overall_goal: str, details: str, context: str):
+        quest_system_prompt = f"""You are a tasked with creating a quest based on the provided information. A quest is a collection of steps that are designed to be completed in a specific order to complete a larger goal."""
+
+        user_prompt = f"""
+Create a quest based on the following information:
+
+Overall Goal: {overall_goal}
+
+Details:
+{details}
+
+Context:
+{context}
+
+Please respond with JSON in the following format:
+{Quest.model_json_schema()}
+        """
+
+        messages = [Message(role="system", content=quest_system_prompt)]
+        messages.append(Message(role="user", content=user_prompt))
+
+        response = call_ollama_chat(llm_url, "a_model", messages, json_schema=QuestGenerationOutput.model_json_schema())
+        quest_generation_output = QuestGenerationOutput.model_validate_json(response)
+
+        quest = Quest(
+            quest_outline=quest_generation_output.quest_outline,
+            quest_details=quest_generation_output.quest_details,
+            status="active",
+            title=quest_generation_output.title,
+            description=quest_generation_output.description,
+            overall_goal=quest_generation_output.overall_goal,
+            steps=quest_generation_output.steps,
+            current_step=quest_generation_output.steps[0].title,
+            notes=[]
+        )
+        self.quests[quest.title] = quest
+        self._save_quest_to_db(quest, agent_id)
+        return quest
+
     def get_quest_by_title(self, title: str):
         """This is for the orchestator, do not expose"""
         return self.quests.get(title)
@@ -198,6 +241,8 @@ class QuestManager:
             "description": "Get the list of active quests.",
             "arguments": []
         }"""
+        # reload quests from db
+        self._load_quests_from_db()
         # get quests where status is not "abandoned" or "submitted for review"
         result = "Quest List:\n"
         if len(self.quests) == 0:
@@ -301,7 +346,7 @@ Please respond with JSON in the following format:
         
         quest = self.quests[title]
         
-        result = "Current Quest\n"
+        result = "Quest\n"
         result += "    Title: " + quest.title + "\n"
         result += "    Description: " + quest.description + "\n"
         result += "    Overall Goal: " + quest.overall_goal + "\n"
@@ -361,6 +406,8 @@ Please respond with JSON in the following format:
             "arguments": []
         }
         """
+        # reload quests from db
+        self._load_quests_from_db()
         if self.current_quest_name is None:
             return "Quest:\n    [Current Quest not set]"
         quest = self.get_quest_by_title(self.current_quest_name)
@@ -561,7 +608,7 @@ Please respond with JSON in the following format:
         {
             "toolset_id": "quest_manager",
             "name": "set_current_quest",
-            "description": "Set the current quest.",
+            "description": "Sets the current quest for",
             "arguments": [{
                 "name": "name",
                 "type": "str",

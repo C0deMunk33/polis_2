@@ -174,6 +174,7 @@
                 <button id="refresh-btn">Refresh</button>
                 <button id="home-btn">Home</button>
                 <button id="messaging-btn">Messaging</button>
+                <button id="quests-btn">Quests</button>
             </div>
         </div>
         
@@ -203,6 +204,7 @@
             const refreshBtn = document.getElementById('refresh-btn');
             const homeBtn = document.getElementById('home-btn');
             const messagingBtn = document.getElementById('messaging-btn');
+            const questsBtn = document.getElementById('quests-btn');
             const breadcrumbDiv = document.getElementById('breadcrumb');
 
             // Event listeners
@@ -220,6 +222,10 @@
 
             messagingBtn.addEventListener('click', () => {
                 window.location.href = '/messaging';
+            });
+
+            questsBtn.addEventListener('click', () => {
+                window.location.href = '/quests';
             });
 
             // Router
@@ -356,24 +362,7 @@
                         
                         resultDiv.appendChild(toolCallsDiv);
                     }
-
-                    // Tool results
-                    if (result.tool_results && result.tool_results.length > 0) {
-                        const toolResultsDiv = document.createElement('div');
-                        toolResultsDiv.innerHTML = '<strong>Tool Results:</strong>';
-                        
-                        result.tool_results.forEach(toolResult => {
-                            if (toolResult.role === 'tool') {
-                                const toolResultDiv = document.createElement('div');
-                                toolResultDiv.className = 'tool-result';
-                                toolResultDiv.innerHTML = `<pre>${toolResult.content}</pre>`;
-                                toolResultsDiv.appendChild(toolResultDiv);
-                            }
-                        });
-                        
-                        resultDiv.appendChild(toolResultsDiv);
-                    }
-
+                    
                     // System Prompt with expand/collapse button
                     if (result.run_messages && result.run_messages.length > 0) {
                         const systemPrompt = result.run_messages.find(msg => msg.role === 'system')?.content || '';
@@ -448,6 +437,25 @@
                         runMessagesDiv.appendChild(messagesContent);
                         resultDiv.appendChild(runMessagesDiv);
                     }
+
+                    // Tool results
+                    if (result.tool_results && result.tool_results.length > 0) {
+                        const toolResultsDiv = document.createElement('div');
+                        toolResultsDiv.innerHTML = '<strong>Tool Results:</strong>';
+                        
+                        result.tool_results.forEach(toolResult => {
+                            if (toolResult.role === 'tool') {
+                                const toolResultDiv = document.createElement('div');
+                                toolResultDiv.className = 'tool-result';
+                                toolResultDiv.innerHTML = `<pre>${toolResult.content}</pre>`;
+                                toolResultsDiv.appendChild(toolResultDiv);
+                            }
+                        });
+                        
+                        resultDiv.appendChild(toolResultsDiv);
+                    }
+
+                    
 
                     // Summary
                     if (result.summary_output) {

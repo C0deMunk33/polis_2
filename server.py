@@ -23,6 +23,8 @@ agent_database = AgentDatabase(agent_db_path)
 user_directory = UserDirectory(user_directory_db_path)
 quest_manager = QuestManager(agent_id="admin", db_path=quest_db_path)
 
+llm_url = "http://localhost:5000"
+
 # Create a dummy admin agent for messaging
 class AdminAgent:
     def __init__(self):
@@ -40,6 +42,12 @@ def serve_app(agent_id=None):
 @app.route('/messaging')
 def serve_messaging():
     return send_from_directory('web', 'messaging.html')
+
+@app.route('/api/create_quest', methods=['POST'])
+def create_quest():
+    data = request.json
+    quest_manager._create_quest_for_agent(llm_url, data['agent_id'], data['overall_goal'], data['details'], data['context'])
+    return jsonify({"success": True})
 
 @app.route('/api/list_agents', methods=['GET'])
 def list_agents():

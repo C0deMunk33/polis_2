@@ -111,6 +111,36 @@
             padding: 5px;
             border-left: 2px solid #33ff33;
         }
+        .quest-form {
+            margin-bottom: 20px;
+            padding: 15px;
+        }
+        .quest-form form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .quest-form label {
+            display: block;
+            margin-top: 10px;
+        }
+        .quest-form input[type="text"],
+        .quest-form textarea {
+            background-color: #0c0c0c;
+            color: #33ff33;
+            border: 1px solid #33ff33;
+            padding: 8px;
+            width: 100%;
+            font-family: 'Courier New', monospace;
+        }
+        .quest-form textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        .quest-form button {
+            align-self: flex-start;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -119,7 +149,8 @@
         <div>
             <button id="refresh-btn">Refresh</button>
             <button id="home-btn">Home</button>
-            <button id="agents-btn">Agents</button>
+            <button id="agents-btn">Agent Viewer</button>
+            <button id="messaging-btn">Messaging</button>
         </div>
     </div>
 
@@ -151,19 +182,28 @@
         const refreshBtn = document.getElementById('refresh-btn');
         const homeBtn = document.getElementById('home-btn');
         const agentsBtn = document.getElementById('agents-btn');
+        const messagingBtn = document.getElementById('messaging-btn');
         const breadcrumbDiv = document.getElementById('breadcrumb');
 
         // Event listeners
         refreshBtn.addEventListener('click', handleRefresh);
         homeBtn.addEventListener('click', () => navigateTo('/'));
-        agentsBtn.addEventListener('click', () => navigateTo('/'));
+        agentsBtn.addEventListener('click', () => {
+            window.location.href = '/';
+        });
+        messagingBtn.addEventListener('click', () => {
+            window.location.href = '/messaging';
+        });
 
-        function handleRefresh() {
-            fetchAgents();
+        async function handleRefresh() {
+            await fetchAgents();
+            updateBreadcrumb();
             if (state.currentView === 'agent-quests') {
-                fetchAgentQuests(state.currentAgentId);
+                await fetchAgentQuests(state.currentAgentId);
             } else if (state.currentView === 'quest-details') {
-                fetchQuestDetails(state.currentQuestId);
+                await fetchQuestDetails(state.currentQuestId);
+            } else if (state.currentView === 'agents') {
+                renderAgentList();
             }
         }
 
@@ -241,6 +281,7 @@
                 if (!response.ok) throw new Error('Failed to fetch quests');
                 state.quests = await response.json();
                 renderAgentQuests();
+                setupQuestFormListener();
             } catch (error) {
                 renderError(error.message);
             } finally {
@@ -321,7 +362,28 @@
 
         function renderAgentQuests() {
             const agent = state.agents.find(a => a.agent_id === state.currentAgentId);
-            contentDiv.innerHTML = `<h2>Quests for ${agent?.agent_name || state.currentAgentId}</h2>`;
+            contentDiv.innerHTML = `
+                <h2>Quests for ${agent?.agent_name || state.currentAgentId}</h2>
+                
+                <!-- Add Create Quest Form -->
+                <div class="quest-form terminal">
+                    <h3>Create New Quest</h3>
+                    <form id="create-quest-form">
+                        <label>Overall Goal:
+                            <input type="text" id="quest-goal" required>
+                        </label>
+                        <label>Details:
+                            <textarea id="quest-details" required></textarea>
+                        </label>
+                        <label>Context:
+                            <textarea id="quest-context" required></textarea>
+                        </label>
+                        <button type="submit">Create Quest</button>
+                    </form>
+                </div>
+                
+                <h3>Existing Quests</h3>
+            `;
             
             if (state.quests.length === 0) {
                 contentDiv.innerHTML += '<p>No quests found for this agent.</p>';
@@ -457,6 +519,52 @@
                 quest_title: questTitle
             });
         };
+
+        // Add this new function in the <script> section
+        async function createQuest(formData) {
+            showLoading();
+            try {
+                const response = await fetch('/api/create_quest', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        agent_id: state.currentAgentId,
+                        overall_goal: formData.goal,
+                        details: formData.details,
+                        context: formData.context
+                    }),
+                });
+
+                if (!response.ok) throw new Error('Failed to create quest');
+                
+                // Refresh the quests list
+                await fetchAgentQuests(state.currentAgentId);
+            } catch (error) {
+                renderError(error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Add this event listener setup in the existing handleRoute function
+        // after the fetchAgentQuests(agentId) call
+        function setupQuestFormListener() {
+            const form = document.getElementById('create-quest-form');
+            if (form) {
+                form.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const formData = {
+                        goal: document.getElementById('quest-goal').value,
+                        details: document.getElementById('quest-details').value,
+                        context: document.getElementById('quest-context').value
+                    };
+                    await createQuest(formData);
+                    form.reset();
+                });
+            }
+        }
 
         // Initialize the app
         window.addEventListener('hashchange', handleRoute);
